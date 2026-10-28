@@ -1,0 +1,7 @@
+{
+  "tool_name": "Bash",
+  "tool_input_preview": "{\"command\":\"cd /e/bid-rate && pnpm test 2>&1\",\"description\":\"Vitest run (no tests yet)\"}",
+  "error": "Exit code 1\n\n> bid-rate@0.1.0 test E:\\bid-rate\n> vitest run\n\n\u001b[33m(!) Your Vite config uses features that are unsupported by `configLoader: 'native'`, which is planned to become the default in a future major version of Vite:\n  - ESM syntax in a file loaded as CommonJS (vitest.config.ts:1:1). Use a `.mjs` extension or set `\"type\": \"module\"` in the closest package.json\nSet `VITE_CONFIG_NATIVE_IGNORE_WARNING=true` to suppress this warning.\u001b[39m\n\n RUN  v5.0.5 E:/bid-rate\n\nNo test files found, exitin...",
+  "timestamp": "2026-10-27T10:05:29.595Z",
+  "retry_count": 1
+}
