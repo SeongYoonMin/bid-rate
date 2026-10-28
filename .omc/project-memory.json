@@ -215,6 +215,18 @@
       "accessCount": 1,
       "lastAccessed": 1793095315405,
       "type": "file"
+    },
+    {
+      "path": "CLAUDE.md",
+      "accessCount": 1,
+      "lastAccessed": 1793188942754,
+      "type": "file"
+    },
+    {
+      "path": "README.md",
+      "accessCount": 1,
+      "lastAccessed": 1793188967650,
+      "type": "file"
     }
   ],
   "userDirectives": []
