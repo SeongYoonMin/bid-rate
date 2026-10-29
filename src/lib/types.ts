@@ -38,3 +38,30 @@ export interface Bid {
 
 /** 수집기가 반환하는 타입 (id, createdAt은 DB가 생성) */
 export type NewBid = Omit<Bid, 'id' | 'createdAt'>
+
+// ── 분석 결과 타입 ──
+
+/** 0.25% 구간별 건수 */
+export interface BinCount {
+  binStart: number // 구간 시작값 (displayRate 기준, 예: 0.5 → 0.5%~0.75%)
+  count: number
+}
+
+/** 분포 */
+export interface Distribution {
+  bins: BinCount[]
+  total: number // assessmentRate가 있는 Bid 건수
+}
+
+/** 추천 지점 */
+export interface Recommendation {
+  binStart: number
+  probability: number // count / total (0~1)
+}
+
+/** 분석 전체 결과 */
+export interface AnalysisResult {
+  overall: Distribution
+  byOrg: Record<string, Distribution>
+  recommendations: Record<string, Recommendation[]> // 'overall' + orgCode별
+}

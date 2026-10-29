@@ -48,6 +48,10 @@ interface G2bApiResponse<T> {
 
 // --- 공개 API ---
 
+export interface G2bFetchOptions {
+  onRawResponse?: (endpoint: string, params: Record<string, string>, body: unknown) => void
+}
+
 /**
  * 나라장터에서 전기공사 입찰 데이터를 수집한다.
  * 1) PPSSrch로 전기공사(0037) 공고번호 목록 전체 페이징
@@ -57,9 +61,10 @@ export async function fetchG2bBids(
   apiKey: string,
   beginDate: string, // YYYYMMDDHHmm
   endDate: string, // YYYYMMDDHHmm
+  options?: G2bFetchOptions,
 ): Promise<NewBid[]> {
   // 1단계: 전기공사 공고번호 목록
-  const searchItems = await fetchAllSearchItems(apiKey, beginDate, endDate)
+  const searchItems = await fetchAllSearchItems(apiKey, beginDate, endDate, options?.onRawResponse)
 
   // 중복 제거 (bidNtceNo 기준, 첫 등장 유지)
   const seen = new Set<string>()
@@ -75,7 +80,7 @@ export async function fetchG2bBids(
   const bids: NewBid[] = []
   for (const item of unique) {
     try {
-      const detailItems = await fetchDetailItems(apiKey, item.bidNtceNo)
+      const detailItems = await fetchDetailItems(apiKey, item.bidNtceNo, options?.onRawResponse)
       if (detailItems.length < 15) continue // 15행 미만 제외
       const bid = g2bDetailToBid(detailItems)
       if (bid) bids.push(bid)
@@ -96,13 +101,14 @@ async function fetchAllSearchItems(
   apiKey: string,
   beginDate: string,
   endDate: string,
+  onRawResponse?: G2bFetchOptions['onRawResponse'],
 ): Promise<G2bSearchItem[]> {
   const allItems: G2bSearchItem[] = []
   let pageNo = 1
 
   // eslint-disable-next-line no-constant-condition
   while (true) {
-    const url = buildUrl('getScsbidListSttusCnstwkPPSSrch', {
+    const params: Record<string, string> = {
       ServiceKey: apiKey,
       type: 'json',
       inqryDiv: '2', // 개찰일시 기준
@@ -111,9 +117,11 @@ async function fetchAllSearchItems(
       indstrytyCd: ELECTRIC_INDUSTRY_CODE,
       numOfRows: String(PAGE_SIZE),
       pageNo: String(pageNo),
-    })
+    }
+    const url = buildUrl('getScsbidListSttusCnstwkPPSSrch', params)
 
     const data = await fetchJson<G2bApiResponse<G2bSearchItem>>(url)
+    onRawResponse?.('getScsbidListSttusCnstwkPPSSrch', params, data)
     const body = data.response.body
     const items = body.items === '' ? [] : body.items
     allItems.push(...items)
@@ -125,17 +133,23 @@ async function fetchAllSearchItems(
   return allItems
 }
 
-async function fetchDetailItems(apiKey: string, bidNtceNo: string): Promise<G2bDetailItem[]> {
-  const url = buildUrl('getOpengResultListInfoCnstwkPreparPcDetail', {
+async function fetchDetailItems(
+  apiKey: string,
+  bidNtceNo: string,
+  onRawResponse?: G2bFetchOptions['onRawResponse'],
+): Promise<G2bDetailItem[]> {
+  const params: Record<string, string> = {
     ServiceKey: apiKey,
     type: 'json',
     inqryDiv: '2', // 입찰공고번호 기준
     bidNtceNo,
     numOfRows: '15',
     pageNo: '1',
-  })
+  }
+  const url = buildUrl('getOpengResultListInfoCnstwkPreparPcDetail', params)
 
   const data = await fetchJson<G2bApiResponse<G2bDetailItem>>(url)
+  onRawResponse?.('getOpengResultListInfoCnstwkPreparPcDetail', params, data)
   const items = data.response.body.items
   return items === '' ? [] : items
 }

@@ -1,6 +1,6 @@
 import { kepcoItemToBid } from '../kepco'
 
-function makeKepcoItem(overrides: Record<string, string> = {}) {
+function makeKepcoItem(overrides: Record<string, unknown> = {}) {
   return {
     no: 'KEPCO-2026-001',
     name: '테스트 한전 전기공사',
@@ -8,7 +8,7 @@ function makeKepcoItem(overrides: Record<string, string> = {}) {
     companyId: 'COM01',
     itemType: 'Construction',
     bidType: 'QualifiedEval',
-    estimatedPriceBasicAmount: '500000000',
+    estimatedPriceBasicAmount: 500000000,
     noticeDate: '20260810',
     ...overrides,
   }
@@ -44,7 +44,7 @@ describe('kepcoItemToBid', () => {
   })
 
   it('기초금액이 없으면 null을 반환한다', () => {
-    const bid = kepcoItemToBid(makeKepcoItem({ estimatedPriceBasicAmount: '' }))
+    const bid = kepcoItemToBid(makeKepcoItem({ estimatedPriceBasicAmount: undefined }))
 
     expect(bid).toBeNull()
   })
