@@ -114,7 +114,14 @@ async function fetchJson<T>(url: string): Promise<T> {
   if (!res.ok) {
     throw new Error(`HTTP ${res.status}: ${res.statusText}`)
   }
-  return res.json() as Promise<T>
+  const json = await res.json()
+
+  // 한전 API 에러 응답 감지 (data 필드 없음 등)
+  if (!json || typeof json !== 'object' || !('data' in json)) {
+    throw new Error(`[kepco] 예상치 못한 응답 구조: ${JSON.stringify(json).slice(0, 200)}`)
+  }
+
+  return json as T
 }
 
 /** "20260810" → "2026-08-10" */

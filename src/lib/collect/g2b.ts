@@ -206,7 +206,18 @@ async function fetchJson<T>(url: string): Promise<T> {
   if (!res.ok) {
     throw new Error(`HTTP ${res.status}: ${res.statusText}`)
   }
-  return res.json() as Promise<T>
+  const json = await res.json()
+
+  // 나라장터 에러 응답 감지 (200 OK지만 본문이 에러)
+  const errHeader = (json as Record<string, unknown>)?.OpenAPI_ServiceResponse as
+    | { cmmMsgHeader?: { returnAuthMsg?: string; returnReasonCode?: string } }
+    | undefined
+  if (errHeader?.cmmMsgHeader) {
+    const { returnAuthMsg, returnReasonCode } = errHeader.cmmMsgHeader
+    throw new Error(`[g2b] API 에러 (code: ${returnReasonCode}): ${returnAuthMsg}`)
+  }
+
+  return json as T
 }
 
 function parseIntOrNull(value: string | undefined): number | null {
