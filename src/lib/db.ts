@@ -127,6 +127,43 @@ export async function getAllBids(): Promise<Bid[]> {
   return rows.map(rowToBid)
 }
 
+const ID_CHUNK_SIZE = 200 // URL 길이 제한 안에서 나눠 조회
+
+async function collectBidIds(
+  ids: string[],
+  label: string,
+  fetchChunk: (
+    chunk: string[],
+  ) => PromiseLike<{ data: unknown; error: { message: string } | null }>,
+): Promise<Set<string>> {
+  const found = new Set<string>()
+  for (let i = 0; i < ids.length; i += ID_CHUNK_SIZE) {
+    const { data, error } = await fetchChunk(ids.slice(i, i + ID_CHUNK_SIZE))
+    if (error) throw new Error(`${label} 실패: ${error.message}`)
+    for (const row of data as { source_id: string }[]) found.add(row.source_id)
+  }
+  return found
+}
+
+/** 이미 저장된 공고번호 */
+export function getExistingBidIds(ids: string[]): Promise<Set<string>> {
+  return collectBidIds(ids, 'getExistingBidIds', (chunk) =>
+    getSupabase().from('bids').select('source_id').in('source_id', chunk),
+  )
+}
+
+/** 사정률과 낙찰방법까지 저장되어 다시 받을 필요가 없는 공고번호 */
+export function getCompleteBidIds(ids: string[]): Promise<Set<string>> {
+  return collectBidIds(ids, 'getCompleteBidIds', (chunk) =>
+    getSupabase()
+      .from('bids')
+      .select('source_id')
+      .in('source_id', chunk)
+      .not('assessment_rate', 'is', null)
+      .neq('bid_method', '미확인'),
+  )
+}
+
 /** 오늘 날짜 기준 분석 결과 upsert */
 export async function saveAnalysisResult(result: AnalysisSnapshot): Promise<void> {
   const { error } = await getSupabase()

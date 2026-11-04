@@ -7,7 +7,7 @@ describe('fetchKepcoBids', () => {
     const requested: string[] = []
     vi.stubGlobal('fetch', async (url: string) => {
       requested.push(url)
-      return { ok: true, json: async () => ({ data: [] }) }
+      return { ok: true, json: async () => ({ data: [makeKepcoItem()] }) }
     })
     const saved: unknown[] = []
 
@@ -18,6 +18,44 @@ describe('fetchKepcoBids', () => {
     expect(requested[0]).toContain('SECRET-KEY')
     expect(saved).toHaveLength(1)
     expect(JSON.stringify(saved)).not.toContain('SECRET-KEY')
+  })
+
+  it('처음 보는 공사+적격심사 공고만 원본과 Bid로 남긴다', async () => {
+    vi.stubGlobal('fetch', async () => ({
+      ok: true,
+      json: async () => ({
+        data: [
+          makeKepcoItem({ no: 'KNOWN' }),
+          makeKepcoItem({ no: 'NEW' }),
+          makeKepcoItem({ no: 'SERVICE', itemType: 'Service' }),
+        ],
+      }),
+    }))
+    const saved: { data: { no: string }[] }[] = []
+
+    const bids = await fetchKepcoBids('KEY', '20260101', '20260102', {
+      getExistingIds: async () => new Set(['KNOWN']),
+      onRawResponse: (_endpoint, _params, body) => saved.push(body as { data: { no: string }[] }),
+    })
+
+    expect(bids.map((b) => b.sourceId)).toEqual(['NEW'])
+    expect(saved[0].data.map((i) => i.no)).toEqual(['NEW'])
+  })
+
+  it('새 공고가 없으면 원본을 저장하지 않는다', async () => {
+    vi.stubGlobal('fetch', async () => ({
+      ok: true,
+      json: async () => ({ data: [makeKepcoItem({ no: 'KNOWN' })] }),
+    }))
+    const saved: unknown[] = []
+
+    const bids = await fetchKepcoBids('KEY', '20260101', '20260102', {
+      getExistingIds: async () => new Set(['KNOWN']),
+      onRawResponse: (_endpoint, params) => saved.push(params),
+    })
+
+    expect(bids).toEqual([])
+    expect(saved).toEqual([])
   })
 })
 

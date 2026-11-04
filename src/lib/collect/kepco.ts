@@ -26,11 +26,14 @@ interface KepcoApiResponse {
 
 export interface KepcoFetchOptions {
   onRawResponse?: (endpoint: string, params: Record<string, string>, body: unknown) => void
+  /** 이미 저장된 공고번호를 돌려준다. 저장된 공고는 원본도 Bid도 다시 만들지 않는다. */
+  getExistingIds?: (ids: string[]) => Promise<Set<string>>
 }
 
 /**
  * 한전 전자입찰에서 공사+적격심사 공고를 수집한다.
  * 한전은 예정가격·복수예비가격 없음 → predeterminedPrice: null, preliminaryPrices: []
+ * 응답이 모든 품목을 담아 크므로(수 MB), 원본은 처음 보는 공사+적격심사 공고만 보관한다.
  */
 export async function fetchKepcoBids(
   apiKey: string,
@@ -38,15 +41,21 @@ export async function fetchKepcoBids(
   endDate: string, // YYYYMMDD
   options?: KepcoFetchOptions,
 ): Promise<NewBid[]> {
-  const items = await fetchAllItems(apiKey, beginDate, endDate, options?.onRawResponse)
+  const { params, data } = await fetchAllItems(apiKey, beginDate, endDate)
 
   // 공사 + 적격심사만 필터
-  const filtered = items.filter(
+  const filtered = data.data.filter(
     (item) => item.itemType === 'Construction' && item.bidType === 'QualifiedEval',
   )
 
+  const existing = (await options?.getExistingIds?.(filtered.map((item) => item.no))) ?? new Set()
+  const newItems = filtered.filter((item) => !existing.has(item.no))
+  if (newItems.length > 0) {
+    options?.onRawResponse?.('electContract.do', params, { ...data, data: newItems })
+  }
+
   const bids: NewBid[] = []
-  for (const item of filtered) {
+  for (const item of newItems) {
     const bid = kepcoItemToBid(item)
     if (bid) bids.push(bid)
   }
@@ -60,8 +69,7 @@ async function fetchAllItems(
   apiKey: string,
   beginDate: string,
   endDate: string,
-  onRawResponse?: KepcoFetchOptions['onRawResponse'],
-): Promise<KepcoItem[]> {
+): Promise<{ params: Record<string, string>; data: KepcoApiResponse }> {
   // 원본과 함께 저장되므로 키를 넣지 않는다
   const params: Record<string, string> = {
     noticeBeginDate: beginDate,
@@ -70,9 +78,7 @@ async function fetchAllItems(
   }
   const url = buildUrl({ ...params, apiKey })
 
-  const data = await fetchJson<KepcoApiResponse>(url)
-  onRawResponse?.('electContract.do', params, data)
-  return data.data
+  return { params, data: await fetchJson<KepcoApiResponse>(url) }
 }
 
 /**

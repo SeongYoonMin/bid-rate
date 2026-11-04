@@ -65,12 +65,14 @@ interface G2bApiResponse<T> {
 
 export interface G2bFetchOptions {
   onRawResponse?: (endpoint: string, params: Record<string, string>, body: unknown) => void
+  /** 수집이 끝난 공고번호를 돌려준다. 이 공고는 상세 호출과 원본 저장을 건너뛴다. */
+  getCompleteIds?: (ids: string[]) => Promise<Set<string>>
 }
 
 /**
  * 나라장터에서 전기공사 입찰 데이터를 수집한다.
  * 1) PPSSrch로 전기공사(0037) 공고번호 목록 전체 페이징
- * 2) 각 공고번호로 예비가격상세와 낙찰방법 조회 → toBid 변환
+ * 2) 아직 수집이 끝나지 않은 공고번호로 예비가격상세와 낙찰방법 조회 → toBid 변환
  */
 export async function fetchG2bBids(
   apiKey: string,
@@ -92,10 +94,14 @@ export async function fetchG2bBids(
     }
   }
 
+  const complete =
+    (await options?.getCompleteIds?.(unique.map((item) => item.bidNtceNo))) ?? new Set<string>()
+  const targets = unique.filter((item) => !complete.has(item.bidNtceNo))
+
   // 2단계: 각 공고번호로 예비가격상세 조회 (rate limit 방지 딜레이 포함)
   const bids: NewBid[] = []
-  for (let idx = 0; idx < unique.length; idx++) {
-    const item = unique[idx]
+  for (let idx = 0; idx < targets.length; idx++) {
+    const item = targets[idx]
     if (idx > 0) await delay(200)
     try {
       const [detailItems, notice] = await Promise.all([
@@ -107,7 +113,7 @@ export async function fetchG2bBids(
       if (bid) bids.push(bid)
     } catch (e) {
       console.warn(
-        `[g2b] 예비가격상세 조회 실패 (${item.bidNtceNo}):`,
+        `[g2b] 공고 조회 실패, 이번 수집에서 건너뜀 (${item.bidNtceNo}):`,
         e instanceof Error ? e.message : e,
       )
     }
@@ -178,7 +184,7 @@ async function fetchDetailItems(
   return items === '' ? [] : items
 }
 
-/** 조회에 실패하면 미확인으로 저장한다. 분석에서 빠지고 다음 수집 때 다시 채워진다. */
+/** 조회에 실패하면 예외를 던진다. 이미 저장된 값을 덮어쓰지 않도록 그 공고는 이번 수집에서 건너뛴다. */
 async function fetchNoticeInfo(
   apiKey: string,
   bidNtceNo: string,
@@ -191,23 +197,14 @@ async function fetchNoticeInfo(
     numOfRows: '20',
     pageNo: '1',
   }
-  try {
-    const url = buildUrl(
-      BID_NOTICE_OPERATION,
-      { ...params, serviceKey: apiKey },
-      BID_NOTICE_BASE_URL,
-    )
-    const data = await fetchJson<G2bApiResponse<G2bNoticeItem>>(url)
-    onRawResponse?.(BID_NOTICE_OPERATION, params, data)
-    const items = data.response.body.items
-    const latest = items === '' ? undefined : items.at(-1) // 마지막 차수
-    return {
-      bidMethod: toBidMethod(latest?.sucsfbidMthdNm),
-      region: toRegion(latest?.cnstrtsiteRgnNm),
-    }
-  } catch (e) {
-    console.warn(`[g2b] 입찰공고 조회 실패 (${bidNtceNo}):`, e instanceof Error ? e.message : e)
-    return { bidMethod: BID_METHOD_UNKNOWN, region: null }
+  const url = buildUrl(BID_NOTICE_OPERATION, { ...params, serviceKey: apiKey }, BID_NOTICE_BASE_URL)
+  const data = await fetchJson<G2bApiResponse<G2bNoticeItem>>(url)
+  onRawResponse?.(BID_NOTICE_OPERATION, params, data)
+  const items = data.response.body.items
+  const latest = items === '' ? undefined : items.at(-1) // 마지막 차수
+  return {
+    bidMethod: toBidMethod(latest?.sucsfbidMthdNm),
+    region: toRegion(latest?.cnstrtsiteRgnNm),
   }
 }
 

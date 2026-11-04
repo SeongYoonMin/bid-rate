@@ -1,7 +1,14 @@
 import { computeByMethod } from './analysis/recommend'
 import { fetchG2bBids } from './collect/g2b'
 import { fetchKepcoBids } from './collect/kepco'
-import { getAllBids, saveAnalysisResult, saveRawResponse, upsertBids } from './db'
+import {
+  getAllBids,
+  getCompleteBidIds,
+  getExistingBidIds,
+  saveAnalysisResult,
+  saveRawResponse,
+  upsertBids,
+} from './db'
 
 const COLLECT_DAYS = 7
 
@@ -36,8 +43,14 @@ export async function collectAndRecompute(): Promise<{ bidsCount: number }> {
   const kepcoRaw = makeRawResponseCallback('kepco')
 
   const [g2bBids, kepcoBids] = await Promise.all([
-    fetchG2bBids(g2bKey, g2bBidKey, g2bBegin, g2bEnd, { onRawResponse: g2bRaw }),
-    fetchKepcoBids(kepcoKey, kepcoBegin, kepcoEnd, { onRawResponse: kepcoRaw }),
+    fetchG2bBids(g2bKey, g2bBidKey, g2bBegin, g2bEnd, {
+      onRawResponse: g2bRaw,
+      getCompleteIds: getCompleteBidIds,
+    }),
+    fetchKepcoBids(kepcoKey, kepcoBegin, kepcoEnd, {
+      onRawResponse: kepcoRaw,
+      getExistingIds: getExistingBidIds,
+    }),
   ])
 
   const allNew = [...g2bBids, ...kepcoBids]

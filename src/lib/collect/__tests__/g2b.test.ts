@@ -151,6 +151,95 @@ describe('fetchG2bBids', () => {
   })
 })
 
+describe('fetchG2bBids 입찰공고 조회', () => {
+  afterEach(() => {
+    vi.unstubAllGlobals()
+    vi.restoreAllMocks()
+  })
+
+  /** 예비가격상세 15행을 돌려주고, 입찰공고 API 응답은 인자로 정한다 */
+  function stubFetch(noticeResponse: () => object) {
+    vi.stubGlobal('fetch', async (url: string) => {
+      if (url.includes('BidPublicInfoService02')) return noticeResponse()
+      const items = makeDetailRows().map((row) => ({ ...row, ...searchItem }))
+      return {
+        ok: true,
+        json: async () => ({
+          response: {
+            header: { resultCode: '00', resultMsg: '정상' },
+            body: { items, numOfRows: 100, pageNo: 1, totalCount: items.length },
+          },
+        }),
+      }
+    })
+  }
+  const collect = () => fetchG2bBids('KEY-A', 'KEY-B', '202601010000', '202601022359')
+
+  it('입찰공고 조회에 실패한 공고는 저장 대상에서 뺀다 (기존 값을 덮어쓰지 않음)', async () => {
+    vi.spyOn(console, 'warn').mockImplementation(() => {})
+    stubFetch(() => ({ ok: false, status: 429, statusText: 'Too Many Requests' }))
+
+    expect(await collect()).toEqual([])
+  })
+
+  it('입찰공고 조회에 성공하면 낙찰방법과 지역을 담는다', async () => {
+    stubFetch(() => ({
+      ok: true,
+      json: async () => ({
+        response: {
+          header: { resultCode: '00', resultMsg: '정상' },
+          body: {
+            items: [{ sucsfbidMthdNm: '소액수의견적-견적', cnstrtsiteRgnNm: '경기도 수원시' }],
+            numOfRows: 20,
+            pageNo: 1,
+            totalCount: 1,
+          },
+        },
+      }),
+    }))
+
+    const [bid] = await collect()
+
+    expect(bid.bidMethod).toBe('소액수의견적')
+    expect(bid.region).toBe('경기도')
+  })
+})
+
+describe('fetchG2bBids 수집이 끝난 공고', () => {
+  afterEach(() => vi.unstubAllGlobals())
+
+  it('상세 호출과 원본 저장을 건너뛴다', async () => {
+    const requested: string[] = []
+    vi.stubGlobal('fetch', async (url: string) => {
+      requested.push(url)
+      return {
+        ok: true,
+        json: async () => ({
+          response: {
+            header: { resultCode: '00', resultMsg: '정상' },
+            body: {
+              items: [{ bidNtceNo: 'DONE', dminsttCd: '1', dminsttNm: '기관' }],
+              numOfRows: 100,
+              pageNo: 1,
+              totalCount: 1,
+            },
+          },
+        }),
+      }
+    })
+    const saved: string[] = []
+
+    const bids = await fetchG2bBids('KEY-A', 'KEY-B', '202601010000', '202601022359', {
+      getCompleteIds: async () => new Set(['DONE']),
+      onRawResponse: (endpoint) => saved.push(endpoint),
+    })
+
+    expect(bids).toEqual([])
+    expect(requested).toHaveLength(1) // 목록 조회만
+    expect(saved).toEqual(['getScsbidListSttusCnstwkPPSSrch'])
+  })
+})
+
 describe('toRegion', () => {
   it('공사현장 지역명의 첫 단어를 시도로 쓴다', () => {
     expect(toRegion('충청북도 청주시')).toBe('충청북도')
