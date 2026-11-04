@@ -3,7 +3,7 @@ import { fetchG2bBids } from './collect/g2b'
 import { fetchKepcoBids } from './collect/kepco'
 import { getAllBids, saveAnalysisResult, saveRawResponse, upsertBids } from './db'
 
-const COLLECT_DAYS = 30
+const COLLECT_DAYS = 7
 
 /** DB 전체 Bid 조회 → 분석 → 결과 저장 */
 export async function recomputeAll(): Promise<void> {
