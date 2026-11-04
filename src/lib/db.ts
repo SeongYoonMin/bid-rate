@@ -1,4 +1,11 @@
-import type { AnalysisResult, Bid, NewBid, PreliminaryPrice } from './types'
+import {
+  ANALYSIS_METHODS,
+  type AnalysisMethod,
+  type AnalysisSnapshot,
+  type Bid,
+  type NewBid,
+  type PreliminaryPrice,
+} from './types'
 import { getSupabase } from './supabase'
 
 // ── snake_case DB row 타입 ──
@@ -100,14 +107,14 @@ export async function upsertBids(bids: NewBid[]): Promise<Bid[]> {
   return (data as BidRow[]).map(rowToBid)
 }
 
-/** 적격심사 Bid 전체 조회 */
+/** 분석 대상 낙찰방법의 Bid 전체 조회 */
 export async function getAllBids(): Promise<Bid[]> {
   const rows = await fetchAllRows<BidRow>(
     (from, to) =>
       getSupabase()
         .from('bids')
         .select()
-        .eq('bid_method', '적격심사')
+        .in('bid_method', [...ANALYSIS_METHODS])
         .order('notice_date', { ascending: false })
         .order('source_id')
         .range(from, to),
@@ -117,7 +124,7 @@ export async function getAllBids(): Promise<Bid[]> {
 }
 
 /** 오늘 날짜 기준 분석 결과 upsert */
-export async function saveAnalysisResult(result: AnalysisResult): Promise<void> {
+export async function saveAnalysisResult(result: AnalysisSnapshot): Promise<void> {
   const today = new Date().toISOString().slice(0, 10) // YYYY-MM-DD
   const { error } = await getSupabase()
     .from('analysis_results')
@@ -126,9 +133,9 @@ export async function saveAnalysisResult(result: AnalysisResult): Promise<void> 
   if (error) throw new Error(`saveAnalysisResult 실패: ${error.message}`)
 }
 
-/** 최신 분석 결과 + 계산일 조회 */
+/** 최신 분석 결과 + 계산일 조회. 낙찰방법이 섞인 과거 형식의 스냅샷은 없는 것으로 본다. */
 export async function getLatestAnalysisWithDate(): Promise<{
-  result: AnalysisResult
+  snapshot: AnalysisSnapshot
   computedDate: string
 } | null> {
   const { data, error } = await getSupabase()
@@ -144,14 +151,15 @@ export async function getLatestAnalysisWithDate(): Promise<{
     throw new Error(`getLatestAnalysisWithDate 실패: ${error.message}`)
   }
 
-  return {
-    result: data.result as AnalysisResult,
-    computedDate: data.computed_date as string,
-  }
+  const snapshot = data.result as AnalysisSnapshot
+  if (!snapshot.methods) return null
+
+  return { snapshot, computedDate: data.computed_date as string }
 }
 
 /** 사정률 추이 데이터 조회 (assessmentRate not null만) */
 export async function getBidsForTrend(
+  method: AnalysisMethod,
   orgCode?: string,
 ): Promise<{ date: string; rate: number; sourceId: string; name: string }[]> {
   const rows = await fetchAllRows<{
@@ -164,6 +172,7 @@ export async function getBidsForTrend(
       .from('bids')
       .select('notice_date, assessment_rate, org_code, source_id, name')
       .not('assessment_rate', 'is', null)
+      .eq('bid_method', method)
 
     if (orgCode) {
       query = query.eq('org_code', orgCode)

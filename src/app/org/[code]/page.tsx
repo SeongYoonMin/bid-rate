@@ -1,23 +1,25 @@
 import Link from 'next/link'
-import { notFound } from 'next/navigation'
 import { getLatestAnalysisWithDate, getBidsForTrend } from '@/lib/db'
 import { DistributionChart } from '../../components/DistributionChart'
 import { DistributionTable } from '../../components/DistributionTable'
+import { MethodTabs, methodHref, parseMethod } from '../../components/MethodTabs'
 import { TrendChart } from '../../components/TrendChart'
 
 interface Props {
   params: Promise<{ code: string }>
+  searchParams: Promise<{ method?: string }>
 }
 
 export const dynamic = 'force-dynamic'
 
 const LOW_SAMPLE_THRESHOLD = 10
 
-export default async function OrgDetailPage({ params }: Props) {
+export default async function OrgDetailPage({ params, searchParams }: Props) {
   const { code } = await params
+  const method = parseMethod((await searchParams).method)
   const [latest, trendData] = await Promise.all([
     getLatestAnalysisWithDate(),
-    getBidsForTrend(code),
+    getBidsForTrend(method, code),
   ])
 
   if (!latest) {
@@ -28,32 +30,37 @@ export default async function OrgDetailPage({ params }: Props) {
     )
   }
 
-  const { result, computedDate } = latest
-  const dist = result.byOrg[code]
-  if (!dist) notFound()
-
+  const { snapshot, computedDate } = latest
+  const result = snapshot.methods[method]
   const recs = result.recommendations[code] ?? []
   const top3 = recs.slice(0, 3)
   const top = top3[0]
-  const { bins, total } = dist
+  // 한 낙찰방법에만 공고가 있는 발주처도 탭을 옮길 수 있도록 404로 보내지 않는다
+  const { bins, total } = result.byOrg[code] ?? { bins: [], total: 0 }
   const hasData = total > 0
+  const orgName =
+    result.orgNames?.[code] ??
+    Object.values(snapshot.methods).find((r) => r.orgNames?.[code])?.orgNames?.[code] ??
+    code
 
   return (
     <div className="flex flex-col gap-6">
       <div>
-        <Link href="/org" className="text-sm text-blue-600 hover:underline">
+        <Link href={methodHref('/org', method)} className="text-sm text-blue-600 hover:underline">
           ← 발주처 목록
         </Link>
       </div>
 
       <div className="flex items-baseline justify-between gap-4">
-        <h1 className="text-2xl font-bold">{result.orgNames?.[code] ?? code}</h1>
+        <h1 className="text-2xl font-bold">{orgName}</h1>
         <span className="shrink-0 text-sm text-gray-400">{computedDate} 기준</span>
       </div>
 
+      <MethodTabs path={`/org/${code}`} method={method} />
+
       {!hasData ? (
         <div className="rounded-lg border p-8 text-center text-gray-500">
-          <p className="text-lg">이 발주처의 사정률 데이터가 없습니다</p>
+          <p className="text-lg">이 낙찰방법의 사정률 데이터가 없습니다</p>
         </div>
       ) : (
         <>
@@ -102,7 +109,7 @@ export default async function OrgDetailPage({ params }: Props) {
           {trendData.length > 0 && (
             <div>
               <h2 className="text-lg font-semibold mb-2">사정률 추이 ({trendData.length}건)</h2>
-              <TrendChart data={trendData} />
+              <TrendChart key={method} data={trendData} />
             </div>
           )}
         </>

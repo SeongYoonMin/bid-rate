@@ -1,4 +1,4 @@
-import type { AnalysisResult, Bid, Distribution, Recommendation } from '../types'
+import type { AnalysisResult, AnalysisSnapshot, Bid, Distribution, Recommendation } from '../types'
 import { blendDistributions } from './correction'
 import { computeDistribution, computeDistributionByOrg } from './distribution'
 
@@ -40,4 +40,14 @@ export function computeAll(bids: Bid[]): AnalysisResult {
   }
 
   return { overall, byOrg, orgNames, recommendations }
+}
+
+/** Bid[] → 낙찰방법별 분석 결과 (순수 함수). 대상이 아닌 낙찰방법은 빠진다. */
+export function computeByMethod(bids: Bid[]): AnalysisSnapshot {
+  return {
+    methods: {
+      적격심사: computeAll(bids.filter((b) => b.bidMethod === '적격심사')),
+      소액수의견적: computeAll(bids.filter((b) => b.bidMethod === '소액수의견적')),
+    },
+  }
 }

@@ -66,3 +66,12 @@ export interface AnalysisResult {
   orgNames?: Record<string, string> // orgCode → 발주기관명 (과거 스냅샷에는 없음)
   recommendations: Record<string, Recommendation[]> // 'overall' + orgCode별
 }
+
+/** 분석 대상 낙찰방법 (나머지는 저장만 하고 분석에서 뺀다) */
+export const ANALYSIS_METHODS = ['적격심사', '소액수의견적'] as const
+export type AnalysisMethod = (typeof ANALYSIS_METHODS)[number]
+
+/** 날짜별 스냅샷: 낙찰방법별 분석 결과 */
+export interface AnalysisSnapshot {
+  methods: Record<AnalysisMethod, AnalysisResult>
+}

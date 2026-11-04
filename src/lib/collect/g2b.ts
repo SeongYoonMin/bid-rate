@@ -3,6 +3,9 @@ import type { NewBid, PreliminaryPrice } from '../types'
 // --- API 상수 ---
 
 const BASE_URL = 'https://apis.data.go.kr/1230000/as/ScsbidInfoService'
+const BID_NOTICE_BASE_URL = 'https://apis.data.go.kr/1230000/ad/BidPublicInfoService02'
+const BID_NOTICE_OPERATION = 'getBidPblancListInfoCnstwk02'
+const BID_METHOD_UNKNOWN = '미확인'
 
 const ELECTRIC_INDUSTRY_CODE = '0037'
 const PAGE_SIZE = 100
@@ -34,6 +37,11 @@ interface G2bDetailItem {
   rlOpengDt?: string // 실개찰일시
 }
 
+/** 입찰공고 응답 아이템 (필요한 항목만) */
+interface G2bNoticeItem {
+  sucsfbidMthdNm?: string // 낙찰방법명
+}
+
 interface G2bApiResponse<T> {
   response: {
     header: { resultCode: string; resultMsg: string }
@@ -55,10 +63,11 @@ export interface G2bFetchOptions {
 /**
  * 나라장터에서 전기공사 입찰 데이터를 수집한다.
  * 1) PPSSrch로 전기공사(0037) 공고번호 목록 전체 페이징
- * 2) 각 공고번호로 예비가격상세 조회 → toBid 변환
+ * 2) 각 공고번호로 예비가격상세와 낙찰방법 조회 → toBid 변환
  */
 export async function fetchG2bBids(
   apiKey: string,
+  bidNoticeApiKey: string,
   beginDate: string, // YYYYMMDDHHmm
   endDate: string, // YYYYMMDDHHmm
   options?: G2bFetchOptions,
@@ -82,9 +91,12 @@ export async function fetchG2bBids(
     const item = unique[idx]
     if (idx > 0) await delay(200)
     try {
-      const detailItems = await fetchDetailItems(apiKey, item.bidNtceNo, options?.onRawResponse)
+      const [detailItems, bidMethod] = await Promise.all([
+        fetchDetailItems(apiKey, item.bidNtceNo, options?.onRawResponse),
+        fetchBidMethod(bidNoticeApiKey, item.bidNtceNo, options?.onRawResponse),
+      ])
       if (detailItems.length < 15) continue // 15행 미만 제외
-      const bid = g2bDetailToBid(detailItems, item)
+      const bid = g2bDetailToBid(detailItems, item, bidMethod)
       if (bid) bids.push(bid)
     } catch (e) {
       console.warn(
@@ -110,8 +122,8 @@ async function fetchAllSearchItems(
 
   // eslint-disable-next-line no-constant-condition
   while (true) {
+    // 원본과 함께 저장되므로 키를 넣지 않는다
     const params: Record<string, string> = {
-      ServiceKey: apiKey,
       type: 'json',
       inqryDiv: '2', // 개찰일시 기준
       inqryBgnDt: beginDate,
@@ -120,7 +132,7 @@ async function fetchAllSearchItems(
       numOfRows: String(PAGE_SIZE),
       pageNo: String(pageNo),
     }
-    const url = buildUrl('getScsbidListSttusCnstwkPPSSrch', params)
+    const url = buildUrl('getScsbidListSttusCnstwkPPSSrch', { ...params, ServiceKey: apiKey })
 
     const data = await fetchJson<G2bApiResponse<G2bSearchItem>>(url)
     onRawResponse?.('getScsbidListSttusCnstwkPPSSrch', params, data)
@@ -140,15 +152,18 @@ async function fetchDetailItems(
   bidNtceNo: string,
   onRawResponse?: G2bFetchOptions['onRawResponse'],
 ): Promise<G2bDetailItem[]> {
+  // 원본과 함께 저장되므로 키를 넣지 않는다
   const params: Record<string, string> = {
-    ServiceKey: apiKey,
     type: 'json',
     inqryDiv: '2', // 입찰공고번호 기준
     bidNtceNo,
     numOfRows: '15',
     pageNo: '1',
   }
-  const url = buildUrl('getOpengResultListInfoCnstwkPreparPcDetail', params)
+  const url = buildUrl('getOpengResultListInfoCnstwkPreparPcDetail', {
+    ...params,
+    ServiceKey: apiKey,
+  })
 
   const data = await fetchJson<G2bApiResponse<G2bDetailItem>>(url)
   onRawResponse?.('getOpengResultListInfoCnstwkPreparPcDetail', params, data)
@@ -156,13 +171,50 @@ async function fetchDetailItems(
   return items === '' ? [] : items
 }
 
+/** 조회에 실패하면 미확인으로 저장한다. 분석에서 빠지고 다음 수집 때 다시 채워진다. */
+async function fetchBidMethod(
+  apiKey: string,
+  bidNtceNo: string,
+  onRawResponse?: G2bFetchOptions['onRawResponse'],
+): Promise<string> {
+  const params: Record<string, string> = {
+    type: 'json',
+    inqryDiv: '2', // 입찰공고번호 기준
+    bidNtceNo,
+    numOfRows: '20',
+    pageNo: '1',
+  }
+  try {
+    const url = buildUrl(
+      BID_NOTICE_OPERATION,
+      { ...params, serviceKey: apiKey },
+      BID_NOTICE_BASE_URL,
+    )
+    const data = await fetchJson<G2bApiResponse<G2bNoticeItem>>(url)
+    onRawResponse?.(BID_NOTICE_OPERATION, params, data)
+    const items = data.response.body.items
+    return toBidMethod(items === '' ? undefined : items.at(-1)?.sucsfbidMthdNm) // 마지막 차수
+  } catch (e) {
+    console.warn(`[g2b] 낙찰방법 조회 실패 (${bidNtceNo}):`, e instanceof Error ? e.message : e)
+    return BID_METHOD_UNKNOWN
+  }
+}
+
+/** "적격심사제-추정가격이 ..." → "적격심사", "소액수의견적-..." → "소액수의견적" */
+export function toBidMethod(methodName: string | undefined): string {
+  const head = methodName?.split('-')[0].trim()
+  if (!head) return BID_METHOD_UNKNOWN
+  return head === '적격심사제' ? '적격심사' : head
+}
+
 /**
- * 예비가격상세 15행 + 낙찰 목록의 수요기관 → NewBid 변환.
+ * 예비가격상세 15행 + 낙찰 목록의 수요기관 + 낙찰방법 → NewBid 변환.
  * 테스트를 위해 export.
  */
 export function g2bDetailToBid(
   rows: G2bDetailItem[],
   searchItem: Pick<G2bSearchItem, 'dminsttCd' | 'dminsttNm'>,
+  bidMethod: string,
 ): NewBid | null {
   if (rows.length === 0) return null
 
@@ -192,14 +244,18 @@ export function g2bDetailToBid(
     assessmentRate,
     noticeDate: parseDate(first.rlOpengDt) ?? '',
     openDate: first.rlOpengDt ?? null,
-    bidMethod: '적격심사',
+    bidMethod,
   }
 }
 
 // --- 유틸 ---
 
-function buildUrl(operation: string, params: Record<string, string>): string {
-  const url = new URL(`${BASE_URL}/${operation}`)
+function buildUrl(
+  operation: string,
+  params: Record<string, string>,
+  baseUrl: string = BASE_URL,
+): string {
+  const url = new URL(`${baseUrl}/${operation}`)
   for (const [key, value] of Object.entries(params)) {
     url.searchParams.set(key, value)
   }

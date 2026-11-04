@@ -1,9 +1,15 @@
 import Link from 'next/link'
 import { getLatestAnalysisWithDate } from '@/lib/db'
+import { MethodTabs, methodHref, parseMethod } from '../components/MethodTabs'
 
 export const dynamic = 'force-dynamic'
 
-export default async function OrgListPage() {
+interface Props {
+  searchParams: Promise<{ method?: string }>
+}
+
+export default async function OrgListPage({ searchParams }: Props) {
+  const method = parseMethod((await searchParams).method)
   const latest = await getLatestAnalysisWithDate()
 
   if (!latest) {
@@ -14,7 +20,8 @@ export default async function OrgListPage() {
     )
   }
 
-  const { result, computedDate } = latest
+  const { snapshot, computedDate } = latest
+  const result = snapshot.methods[method]
   const orgs = Object.entries(result.byOrg)
     .map(([code, dist]) => ({ code, name: result.orgNames?.[code] ?? code, total: dist.total }))
     .sort((a, b) => b.total - a.total)
@@ -26,6 +33,8 @@ export default async function OrgListPage() {
         <span className="text-sm text-gray-400">{computedDate} 기준</span>
       </div>
 
+      <MethodTabs path="/org" method={method} />
+
       {orgs.length === 0 ? (
         <p className="text-gray-500 text-center py-8">발주처 데이터가 없습니다</p>
       ) : (
@@ -33,7 +42,7 @@ export default async function OrgListPage() {
           {orgs.map(({ code, name, total }) => (
             <li key={code}>
               <Link
-                href={`/org/${code}`}
+                href={methodHref(`/org/${code}`, method)}
                 className="flex items-center justify-between gap-4 px-4 py-3 hover:bg-gray-50"
               >
                 <span className="font-medium">{name}</span>

@@ -1,4 +1,25 @@
-import { kepcoItemToBid } from '../kepco'
+import { fetchKepcoBids, kepcoItemToBid } from '../kepco'
+
+describe('fetchKepcoBids', () => {
+  afterEach(() => vi.unstubAllGlobals())
+
+  it('요청에는 키를 쓰고 원본 저장 파라미터에는 넘기지 않는다', async () => {
+    const requested: string[] = []
+    vi.stubGlobal('fetch', async (url: string) => {
+      requested.push(url)
+      return { ok: true, json: async () => ({ data: [] }) }
+    })
+    const saved: unknown[] = []
+
+    await fetchKepcoBids('SECRET-KEY', '20260101', '20260102', {
+      onRawResponse: (_endpoint, params) => saved.push(params),
+    })
+
+    expect(requested[0]).toContain('SECRET-KEY')
+    expect(saved).toHaveLength(1)
+    expect(JSON.stringify(saved)).not.toContain('SECRET-KEY')
+  })
+})
 
 function makeKepcoItem(overrides: Record<string, unknown> = {}) {
   return {

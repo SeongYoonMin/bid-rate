@@ -62,13 +62,13 @@ async function fetchAllItems(
   endDate: string,
   onRawResponse?: KepcoFetchOptions['onRawResponse'],
 ): Promise<KepcoItem[]> {
+  // 원본과 함께 저장되므로 키를 넣지 않는다
   const params: Record<string, string> = {
-    apiKey,
     noticeBeginDate: beginDate,
     noticeEndDate: endDate,
     returnType: 'json',
   }
-  const url = buildUrl(params)
+  const url = buildUrl({ ...params, apiKey })
 
   const data = await fetchJson<KepcoApiResponse>(url)
   onRawResponse?.('electContract.do', params, data)

@@ -1,4 +1,4 @@
-import { computeAll } from './analysis/recommend'
+import { computeByMethod } from './analysis/recommend'
 import { fetchG2bBids } from './collect/g2b'
 import { fetchKepcoBids } from './collect/kepco'
 import { getAllBids, saveAnalysisResult, saveRawResponse, upsertBids } from './db'
@@ -8,16 +8,16 @@ const COLLECT_DAYS = 7
 /** DB 전체 Bid 조회 → 분석 → 결과 저장 */
 export async function recomputeAll(): Promise<void> {
   const bids = await getAllBids()
-  const result = computeAll(bids)
-  await saveAnalysisResult(result)
+  await saveAnalysisResult(computeByMethod(bids))
 }
 
 /** 한전+나라장터 수집 → upsert → 재분석 */
 export async function collectAndRecompute(): Promise<{ bidsCount: number }> {
   const g2bKey = process.env.G2B_API_KEY
+  const g2bBidKey = process.env.G2B_BID_API_KEY
   const kepcoKey = process.env.KEPCO_API_KEY
-  if (!g2bKey || !kepcoKey) {
-    throw new Error('G2B_API_KEY와 KEPCO_API_KEY 환경변수가 필요합니다.')
+  if (!g2bKey || !g2bBidKey || !kepcoKey) {
+    throw new Error('G2B_API_KEY, G2B_BID_API_KEY, KEPCO_API_KEY 환경변수가 필요합니다.')
   }
 
   const now = new Date()
@@ -36,7 +36,7 @@ export async function collectAndRecompute(): Promise<{ bidsCount: number }> {
   const kepcoRaw = makeRawResponseCallback('kepco')
 
   const [g2bBids, kepcoBids] = await Promise.all([
-    fetchG2bBids(g2bKey, g2bBegin, g2bEnd, { onRawResponse: g2bRaw }),
+    fetchG2bBids(g2bKey, g2bBidKey, g2bBegin, g2bEnd, { onRawResponse: g2bRaw }),
     fetchKepcoBids(kepcoKey, kepcoBegin, kepcoEnd, { onRawResponse: kepcoRaw }),
   ])
 

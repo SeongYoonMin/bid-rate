@@ -1,4 +1,10 @@
-import { g2bDetailToBid } from '../g2b'
+import { fetchG2bBids, g2bDetailToBid as toBidWithMethod, toBidMethod } from '../g2b'
+
+/** 낙찰방법과 무관한 변환 검증용 */
+const g2bDetailToBid = (
+  rows: Parameters<typeof toBidWithMethod>[0],
+  item: Parameters<typeof toBidWithMethod>[1],
+) => toBidWithMethod(rows, item, '적격심사')
 
 /** 15행 예비가격상세 샘플 생성 */
 function makeDetailRows(overrides: Record<string, string> = {}) {
@@ -96,5 +102,68 @@ describe('g2bDetailToBid', () => {
 
     expect(bid.predeterminedPrice).toBeNull()
     expect(bid.assessmentRate).toBeNull()
+  })
+
+  it('전달받은 낙찰방법을 저장한다', () => {
+    const bid = toBidWithMethod(makeDetailRows(), searchItem, '소액수의견적')!
+
+    expect(bid.bidMethod).toBe('소액수의견적')
+  })
+})
+
+describe('fetchG2bBids', () => {
+  afterEach(() => vi.unstubAllGlobals())
+
+  it('요청에는 키를 쓰고 원본 저장 파라미터에는 넘기지 않는다', async () => {
+    const requested: string[] = []
+    vi.stubGlobal('fetch', async (url: string) => {
+      requested.push(url)
+      return {
+        ok: true,
+        json: async () => ({
+          response: {
+            header: { resultCode: '00', resultMsg: '정상' },
+            body: {
+              items: [{ bidNtceNo: 'R26BK00000001', dminsttCd: '1', dminsttNm: '기관' }],
+              numOfRows: 100,
+              pageNo: 1,
+              totalCount: 1,
+            },
+          },
+        }),
+      }
+    })
+    const saved: unknown[] = []
+
+    await fetchG2bBids('SECRET-A', 'SECRET-B', '202601010000', '202601022359', {
+      onRawResponse: (_endpoint, params) => saved.push(params),
+    })
+
+    const urls = requested.join(' ')
+    expect(urls).toContain('SECRET-A')
+    expect(urls).toContain('SECRET-B')
+    expect(saved).toHaveLength(3) // 목록, 예비가격상세, 입찰공고
+    expect(JSON.stringify(saved)).not.toContain('SECRET')
+  })
+})
+
+describe('toBidMethod', () => {
+  it('실제 낙찰방법명의 앞부분으로 분류한다', () => {
+    expect(
+      toBidMethod(
+        '적격심사제-추정가격이 2억원 미만인 입찰공사 평가기준 (실적제한 아님, 그 밖의 공사)',
+      ),
+    ).toBe('적격심사')
+    expect(
+      toBidMethod(
+        '소액수의견적-소액수의견적(2인 이상 견적 제출)-국민연금보험료 등 합산액 감액 적용',
+      ),
+    ).toBe('소액수의견적')
+    expect(toBidMethod('최저가낙찰제-최저가낙찰자')).toBe('최저가낙찰제')
+  })
+
+  it('이름이 없으면 미확인이다', () => {
+    expect(toBidMethod(undefined)).toBe('미확인')
+    expect(toBidMethod('')).toBe('미확인')
   })
 })

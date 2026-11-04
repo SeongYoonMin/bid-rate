@@ -1,12 +1,21 @@
 import Link from 'next/link'
 import { getLatestAnalysisWithDate, getBidsForTrend } from '@/lib/db'
 import { DistributionChart } from './components/DistributionChart'
+import { MethodTabs, methodHref, parseMethod } from './components/MethodTabs'
 import { TrendChart } from './components/TrendChart'
 
 export const dynamic = 'force-dynamic'
 
-export default async function Home() {
-  const [latest, trendData] = await Promise.all([getLatestAnalysisWithDate(), getBidsForTrend()])
+interface Props {
+  searchParams: Promise<{ method?: string }>
+}
+
+export default async function Home({ searchParams }: Props) {
+  const method = parseMethod((await searchParams).method)
+  const [latest, trendData] = await Promise.all([
+    getLatestAnalysisWithDate(),
+    getBidsForTrend(method),
+  ])
 
   if (!latest) {
     return (
@@ -17,7 +26,8 @@ export default async function Home() {
     )
   }
 
-  const { result, computedDate } = latest
+  const { snapshot, computedDate } = latest
+  const result = snapshot.methods[method]
   const recs = result.recommendations['overall'] ?? []
   const top3 = recs.slice(0, 3)
   const top = top3[0]
@@ -31,6 +41,8 @@ export default async function Home() {
         <h1 className="text-2xl font-bold">오늘의 추천</h1>
         <span className="text-sm text-gray-400">{computedDate} 기준</span>
       </div>
+
+      <MethodTabs path="/" method={method} />
 
       {!hasData ? (
         <div className="rounded-lg border p-8 text-center text-gray-500">
@@ -76,7 +88,7 @@ export default async function Home() {
           {trendData.length > 0 && (
             <div>
               <h2 className="text-lg font-semibold mb-2">사정률 추이 ({trendData.length}건)</h2>
-              <TrendChart data={trendData} />
+              <TrendChart key={method} data={trendData} />
             </div>
           )}
         </>
@@ -84,7 +96,7 @@ export default async function Home() {
 
       {/* 발주처 목록 링크 */}
       <Link
-        href="/org"
+        href={methodHref('/org', method)}
         className="block rounded-lg border p-4 text-center text-blue-600 hover:bg-blue-50"
       >
         발주처별 분석 보기 →

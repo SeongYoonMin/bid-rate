@@ -1,5 +1,5 @@
 import type { Bid, Distribution } from '../../types'
-import { computeAll, computeRecommendations } from '../recommend'
+import { computeAll, computeByMethod, computeRecommendations } from '../recommend'
 
 function makeDist(bins: [number, number][], total?: number): Distribution {
   return {
@@ -27,6 +27,21 @@ function makeBid(overrides: Partial<Bid> = {}): Bid {
     ...overrides,
   }
 }
+
+describe('computeByMethod', () => {
+  it('낙찰방법별로 따로 집계하고 대상이 아닌 방법은 뺀다', () => {
+    const { methods } = computeByMethod([
+      makeBid({ sourceId: 'A', bidMethod: '적격심사' }),
+      makeBid({ sourceId: 'B', bidMethod: '소액수의견적' }),
+      makeBid({ sourceId: 'C', bidMethod: '소액수의견적' }),
+      makeBid({ sourceId: 'D', bidMethod: '최저가낙찰제' }),
+      makeBid({ sourceId: 'E', bidMethod: '미확인' }),
+    ])
+
+    expect(methods.적격심사.overall.total).toBe(1)
+    expect(methods.소액수의견적.overall.total).toBe(2)
+  })
+})
 
 describe('computeRecommendations', () => {
   it('빈 분포 → 빈 배열', () => {
