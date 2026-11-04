@@ -11,6 +11,8 @@ interface Props {
 
 export const dynamic = 'force-dynamic'
 
+const LOW_SAMPLE_THRESHOLD = 10
+
 export default async function OrgDetailPage({ params }: Props) {
   const { code } = await params
   const [latest, trendData] = await Promise.all([
@@ -62,9 +64,15 @@ export default async function OrgDetailPage({ params }: Props) {
               <p className="mt-2 text-lg text-gray-600">
                 확률 {(top.probability * 100).toFixed(1)}%
               </p>
-              <p className="mt-1 text-sm text-gray-500">
-                이 발주처 {total}건과 전체 분포를 함께 반영한 값입니다
-              </p>
+              {total < LOW_SAMPLE_THRESHOLD ? (
+                <p className="mt-2 rounded bg-amber-50 px-3 py-2 text-base font-medium text-amber-800">
+                  표본 부족: 이 발주처는 {total}건뿐이라 전체 분포 위주로 계산한 값입니다
+                </p>
+              ) : (
+                <p className="mt-1 text-sm text-gray-500">
+                  이 발주처 {total}건과 전체 분포를 함께 반영한 값입니다
+                </p>
+              )}
             </div>
           )}
 
