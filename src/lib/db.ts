@@ -6,6 +6,7 @@ import {
   type NewBid,
   type PreliminaryPrice,
 } from './types'
+import { todayKst } from './date'
 import { getSupabase } from './supabase'
 
 // ── snake_case DB row 타입 ──
@@ -128,10 +129,9 @@ export async function getAllBids(): Promise<Bid[]> {
 
 /** 오늘 날짜 기준 분석 결과 upsert */
 export async function saveAnalysisResult(result: AnalysisSnapshot): Promise<void> {
-  const today = new Date().toISOString().slice(0, 10) // YYYY-MM-DD
   const { error } = await getSupabase()
     .from('analysis_results')
-    .upsert({ computed_date: today, result }, { onConflict: 'computed_date' })
+    .upsert({ computed_date: todayKst(), result }, { onConflict: 'computed_date' })
 
   if (error) throw new Error(`saveAnalysisResult 실패: ${error.message}`)
 }

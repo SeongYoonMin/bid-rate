@@ -18,11 +18,16 @@ const chip = (selected: boolean) =>
 
 export function RegionFilter({ method, region, regions, total }: Props) {
   const entries = Object.entries(regions).sort((a, b) => b[1].overall.total - a[1].overall.total)
+  const current = region ? `${region} ${regions[region]?.overall.total ?? 0}건` : `전체 ${total}건`
 
   return (
-    <nav aria-label="지역 선택">
-      <p className="mb-2 text-sm text-gray-500">공사현장 지역</p>
-      <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
+    // key: 지역을 고른 뒤 다시 접히도록 새로 그린다
+    <details key={region ?? ''} className="rounded-lg border">
+      <summary className="cursor-pointer p-3 text-lg font-medium">
+        <span className="text-base font-normal text-gray-500">공사현장 지역: </span>
+        {current}
+      </summary>
+      <div className="grid grid-cols-2 gap-2 p-3 pt-0 sm:grid-cols-4">
         <Link
           href={methodHref('/', method)}
           aria-current={region ? undefined : 'page'}
@@ -41,6 +46,6 @@ export function RegionFilter({ method, region, regions, total }: Props) {
           </Link>
         ))}
       </div>
-    </nav>
+    </details>
   )
 }
