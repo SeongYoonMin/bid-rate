@@ -59,6 +59,28 @@ function newBidToRow(bid: NewBid) {
   }
 }
 
+// ── 조회 ──
+
+const FETCH_PAGE_SIZE = 1000 // Supabase 기본 응답 상한
+
+/** 응답 상한에서 잘리지 않도록 끝까지 페이지 단위로 읽는다. 쿼리는 정렬이 유일해야 한다. */
+async function fetchAllRows<T>(
+  fetchPage: (
+    from: number,
+    to: number,
+  ) => PromiseLike<{ data: unknown; error: { message: string } | null }>,
+  label: string,
+): Promise<T[]> {
+  const rows: T[] = []
+  for (let from = 0; ; from += FETCH_PAGE_SIZE) {
+    const { data, error } = await fetchPage(from, from + FETCH_PAGE_SIZE - 1)
+    if (error) throw new Error(`${label} 실패: ${error.message}`)
+    const page = data as T[]
+    rows.push(...page)
+    if (page.length < FETCH_PAGE_SIZE) return rows
+  }
+}
+
 // ── 공개 API ──
 
 /** source_id 기준 upsert. 새 건 삽입, 기존 건 갱신. */
@@ -80,14 +102,18 @@ export async function upsertBids(bids: NewBid[]): Promise<Bid[]> {
 
 /** 적격심사 Bid 전체 조회 */
 export async function getAllBids(): Promise<Bid[]> {
-  const { data, error } = await getSupabase()
-    .from('bids')
-    .select()
-    .eq('bid_method', '적격심사')
-    .order('notice_date', { ascending: false })
-
-  if (error) throw new Error(`getAllBids 실패: ${error.message}`)
-  return (data as BidRow[]).map(rowToBid)
+  const rows = await fetchAllRows<BidRow>(
+    (from, to) =>
+      getSupabase()
+        .from('bids')
+        .select()
+        .eq('bid_method', '적격심사')
+        .order('notice_date', { ascending: false })
+        .order('source_id')
+        .range(from, to),
+    'getAllBids',
+  )
+  return rows.map(rowToBid)
 }
 
 /** 오늘 날짜 기준 분석 결과 upsert */
@@ -98,6 +124,60 @@ export async function saveAnalysisResult(result: AnalysisResult): Promise<void> 
     .upsert({ computed_date: today, result }, { onConflict: 'computed_date' })
 
   if (error) throw new Error(`saveAnalysisResult 실패: ${error.message}`)
+}
+
+/** 최신 분석 결과 + 계산일 조회 */
+export async function getLatestAnalysisWithDate(): Promise<{
+  result: AnalysisResult
+  computedDate: string
+} | null> {
+  const { data, error } = await getSupabase()
+    .from('analysis_results')
+    .select('result, computed_date')
+    .order('computed_date', { ascending: false })
+    .limit(1)
+    .single()
+
+  if (error) {
+    // PGRST116 = no rows
+    if (error.code === 'PGRST116') return null
+    throw new Error(`getLatestAnalysisWithDate 실패: ${error.message}`)
+  }
+
+  return {
+    result: data.result as AnalysisResult,
+    computedDate: data.computed_date as string,
+  }
+}
+
+/** 사정률 추이 데이터 조회 (assessmentRate not null만) */
+export async function getBidsForTrend(
+  orgCode?: string,
+): Promise<{ date: string; rate: number; sourceId: string; name: string }[]> {
+  const rows = await fetchAllRows<{
+    notice_date: string
+    assessment_rate: number
+    source_id: string
+    name: string
+  }>((from, to) => {
+    let query = getSupabase()
+      .from('bids')
+      .select('notice_date, assessment_rate, org_code, source_id, name')
+      .not('assessment_rate', 'is', null)
+
+    if (orgCode) {
+      query = query.eq('org_code', orgCode)
+    }
+
+    return query.order('notice_date', { ascending: true }).order('source_id').range(from, to)
+  }, 'getBidsForTrend')
+
+  return rows.map((row) => ({
+    date: row.notice_date,
+    rate: row.assessment_rate,
+    sourceId: row.source_id,
+    name: row.name,
+  }))
 }
 
 /** API 원본 응답 저장 */

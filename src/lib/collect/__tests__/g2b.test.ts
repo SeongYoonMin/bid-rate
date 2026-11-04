@@ -17,10 +17,20 @@ function makeDetailRows(overrides: Record<string, string> = {}) {
   }))
 }
 
+/** 낙찰 목록(PPSSrch) 샘플 — 발주기관은 이 응답에만 있다 */
+const searchItem = { dminsttCd: '4791000', dminsttNm: '전북특별자치도 부안군' }
+
 describe('g2bDetailToBid', () => {
+  it('발주기관은 낙찰 목록의 수요기관 값을 쓴다 (docs/domain.md)', () => {
+    const bid = g2bDetailToBid(makeDetailRows(), searchItem)!
+
+    expect(bid.org).toBe('전북특별자치도 부안군')
+    expect(bid.orgCode).toBe('4791000')
+  })
+
   it('15행을 NewBid로 변환한다', () => {
     const rows = makeDetailRows()
-    const bid = g2bDetailToBid(rows)
+    const bid = g2bDetailToBid(rows, searchItem)
 
     expect(bid).not.toBeNull()
     expect(bid!.source).toBe('g2b')
@@ -33,14 +43,14 @@ describe('g2bDetailToBid', () => {
 
   it('사정률을 계산한다 (predeterminedPrice / baseAmount)', () => {
     const rows = makeDetailRows()
-    const bid = g2bDetailToBid(rows)!
+    const bid = g2bDetailToBid(rows, searchItem)!
 
     expect(bid.assessmentRate).toBeCloseTo(1773240950 / 1797931000, 10)
   })
 
   it('복수예비가격 15개를 파싱한다', () => {
     const rows = makeDetailRows()
-    const bid = g2bDetailToBid(rows)!
+    const bid = g2bDetailToBid(rows, searchItem)!
 
     expect(bid.preliminaryPrices).toHaveLength(15)
     expect(bid.preliminaryPrices[0]).toEqual({
@@ -57,7 +67,7 @@ describe('g2bDetailToBid', () => {
 
   it('추첨된 항목이 정확히 4개다', () => {
     const rows = makeDetailRows()
-    const bid = g2bDetailToBid(rows)!
+    const bid = g2bDetailToBid(rows, searchItem)!
     const drawnCount = bid.preliminaryPrices.filter((p) => p.drawn).length
 
     expect(drawnCount).toBe(4)
@@ -65,24 +75,24 @@ describe('g2bDetailToBid', () => {
 
   it('개찰일시에서 날짜를 추출한다', () => {
     const rows = makeDetailRows()
-    const bid = g2bDetailToBid(rows)!
+    const bid = g2bDetailToBid(rows, searchItem)!
 
     expect(bid.noticeDate).toBe('2026-07-01')
     expect(bid.openDate).toBe('2026-07-01 13:14:24')
   })
 
   it('빈 배열이면 null을 반환한다', () => {
-    expect(g2bDetailToBid([])).toBeNull()
+    expect(g2bDetailToBid([], searchItem)).toBeNull()
   })
 
   it('기초금액이 없으면 null을 반환한다', () => {
     const rows = makeDetailRows({ bssamt: '' })
-    expect(g2bDetailToBid(rows)).toBeNull()
+    expect(g2bDetailToBid(rows, searchItem)).toBeNull()
   })
 
   it('예정가격이 없으면 assessmentRate는 null이다', () => {
     const rows = makeDetailRows({ plnprc: '' })
-    const bid = g2bDetailToBid(rows)!
+    const bid = g2bDetailToBid(rows, searchItem)!
 
     expect(bid.predeterminedPrice).toBeNull()
     expect(bid.assessmentRate).toBeNull()

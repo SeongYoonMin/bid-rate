@@ -63,5 +63,6 @@ export interface Recommendation {
 export interface AnalysisResult {
   overall: Distribution
   byOrg: Record<string, Distribution>
+  orgNames?: Record<string, string> // orgCode → 발주기관명 (과거 스냅샷에는 없음)
   recommendations: Record<string, Recommendation[]> // 'overall' + orgCode별
 }

@@ -76,13 +76,15 @@ export async function fetchG2bBids(
     }
   }
 
-  // 2단계: 각 공고번호로 예비가격상세 조회
+  // 2단계: 각 공고번호로 예비가격상세 조회 (rate limit 방지 딜레이 포함)
   const bids: NewBid[] = []
-  for (const item of unique) {
+  for (let idx = 0; idx < unique.length; idx++) {
+    const item = unique[idx]
+    if (idx > 0) await delay(200)
     try {
       const detailItems = await fetchDetailItems(apiKey, item.bidNtceNo, options?.onRawResponse)
       if (detailItems.length < 15) continue // 15행 미만 제외
-      const bid = g2bDetailToBid(detailItems)
+      const bid = g2bDetailToBid(detailItems, item)
       if (bid) bids.push(bid)
     } catch (e) {
       console.warn(
@@ -155,10 +157,13 @@ async function fetchDetailItems(
 }
 
 /**
- * 예비가격상세 15행 → NewBid 변환.
+ * 예비가격상세 15행 + 낙찰 목록의 수요기관 → NewBid 변환.
  * 테스트를 위해 export.
  */
-export function g2bDetailToBid(rows: G2bDetailItem[]): NewBid | null {
+export function g2bDetailToBid(
+  rows: G2bDetailItem[],
+  searchItem: Pick<G2bSearchItem, 'dminsttCd' | 'dminsttNm'>,
+): NewBid | null {
   if (rows.length === 0) return null
 
   const first = rows[0]
@@ -179,8 +184,8 @@ export function g2bDetailToBid(rows: G2bDetailItem[]): NewBid | null {
     source: 'g2b',
     sourceId: first.bidNtceNo,
     name: first.bidNtceNm,
-    org: '', // 예비가격상세 응답에 발주기관 없음
-    orgCode: '',
+    org: searchItem.dminsttNm, // 예비가격상세 응답에 발주기관 없음
+    orgCode: searchItem.dminsttCd,
     baseAmount: bssamt,
     predeterminedPrice: plnprc,
     preliminaryPrices,
@@ -210,8 +215,7 @@ async function fetchJson<T>(url: string): Promise<T> {
 
   // 나라장터 에러 응답 감지 (200 OK지만 본문이 에러)
   const errHeader = (json as Record<string, unknown>)?.OpenAPI_ServiceResponse as
-    | { cmmMsgHeader?: { returnAuthMsg?: string; returnReasonCode?: string } }
-    | undefined
+    { cmmMsgHeader?: { returnAuthMsg?: string; returnReasonCode?: string } } | undefined
   if (errHeader?.cmmMsgHeader) {
     const { returnAuthMsg, returnReasonCode } = errHeader.cmmMsgHeader
     throw new Error(`[g2b] API 에러 (code: ${returnReasonCode}): ${returnAuthMsg}`)
@@ -224,6 +228,10 @@ function parseIntOrNull(value: string | undefined): number | null {
   if (value === undefined || value === '') return null
   const n = parseInt(value, 10)
   return Number.isNaN(n) ? null : n
+}
+
+function delay(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms))
 }
 
 /** "2025-07-01 13:14:24" → "2025-07-01" */
