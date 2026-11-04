@@ -96,6 +96,7 @@ export function kepcoItemToBid(item: KepcoItem): NewBid | null {
     noticeDate: formatDate(item.noticeDate), // YYYYMMDD → YYYY-MM-DD
     openDate: null,
     bidMethod: '적격심사',
+    region: null, // 한전 API에 공사현장 지역 없음
   }
 }
 

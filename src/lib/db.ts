@@ -24,6 +24,7 @@ interface BidRow {
   notice_date: string
   open_date: string | null
   bid_method: string
+  region: string | null
   created_at: string
 }
 
@@ -44,6 +45,7 @@ function rowToBid(row: BidRow): Bid {
     noticeDate: row.notice_date,
     openDate: row.open_date,
     bidMethod: row.bid_method,
+    region: row.region,
     createdAt: row.created_at,
   }
 }
@@ -62,6 +64,7 @@ function newBidToRow(bid: NewBid) {
     notice_date: bid.noticeDate,
     open_date: bid.openDate,
     bid_method: bid.bidMethod,
+    region: bid.region,
     updated_at: new Date().toISOString(),
   }
 }
@@ -160,7 +163,7 @@ export async function getLatestAnalysisWithDate(): Promise<{
 /** 사정률 추이 데이터 조회 (assessmentRate not null만) */
 export async function getBidsForTrend(
   method: AnalysisMethod,
-  orgCode?: string,
+  filter: { orgCode?: string; region?: string } = {},
 ): Promise<{ date: string; rate: number; sourceId: string; name: string }[]> {
   const rows = await fetchAllRows<{
     notice_date: string
@@ -174,8 +177,11 @@ export async function getBidsForTrend(
       .not('assessment_rate', 'is', null)
       .eq('bid_method', method)
 
-    if (orgCode) {
-      query = query.eq('org_code', orgCode)
+    if (filter.orgCode) {
+      query = query.eq('org_code', filter.orgCode)
+    }
+    if (filter.region) {
+      query = query.eq('region', filter.region)
     }
 
     return query.order('notice_date', { ascending: true }).order('source_id').range(from, to)

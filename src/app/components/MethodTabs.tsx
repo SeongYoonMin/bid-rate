@@ -11,17 +11,26 @@ export function parseMethod(value: string | undefined): AnalysisMethod {
   return ANALYSIS_METHODS.find((m) => m === value) ?? '적격심사'
 }
 
-export function methodHref(path: string, method: AnalysisMethod): string {
-  return `${path}?method=${encodeURIComponent(method)}`
+export function methodHref(path: string, method: AnalysisMethod, region?: string): string {
+  const base = `${path}?method=${encodeURIComponent(method)}`
+  return region ? `${base}&region=${encodeURIComponent(region)}` : base
 }
 
-export function MethodTabs({ path, method }: { path: string; method: AnalysisMethod }) {
+export function MethodTabs({
+  path,
+  method,
+  region,
+}: {
+  path: string
+  method: AnalysisMethod
+  region?: string
+}) {
   return (
     <div className="grid grid-cols-2 gap-2">
       {ANALYSIS_METHODS.map((m) => (
         <Link
           key={m}
-          href={methodHref(path, m)}
+          href={methodHref(path, m, region)}
           aria-current={m === method ? 'page' : undefined}
           className={`rounded-lg border p-3 text-center text-lg font-medium ${
             m === method

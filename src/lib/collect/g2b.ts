@@ -40,6 +40,13 @@ interface G2bDetailItem {
 /** 입찰공고 응답 아이템 (필요한 항목만) */
 interface G2bNoticeItem {
   sucsfbidMthdNm?: string // 낙찰방법명
+  cnstrtsiteRgnNm?: string // 공사현장지역명 ("충청북도 청주시")
+}
+
+/** 입찰공고에서 가져와 Bid에 넣는 값 */
+export interface G2bNoticeInfo {
+  bidMethod: string
+  region: string | null
 }
 
 interface G2bApiResponse<T> {
@@ -91,12 +98,12 @@ export async function fetchG2bBids(
     const item = unique[idx]
     if (idx > 0) await delay(200)
     try {
-      const [detailItems, bidMethod] = await Promise.all([
+      const [detailItems, notice] = await Promise.all([
         fetchDetailItems(apiKey, item.bidNtceNo, options?.onRawResponse),
-        fetchBidMethod(bidNoticeApiKey, item.bidNtceNo, options?.onRawResponse),
+        fetchNoticeInfo(bidNoticeApiKey, item.bidNtceNo, options?.onRawResponse),
       ])
       if (detailItems.length < 15) continue // 15행 미만 제외
-      const bid = g2bDetailToBid(detailItems, item, bidMethod)
+      const bid = g2bDetailToBid(detailItems, item, notice)
       if (bid) bids.push(bid)
     } catch (e) {
       console.warn(
@@ -172,11 +179,11 @@ async function fetchDetailItems(
 }
 
 /** 조회에 실패하면 미확인으로 저장한다. 분석에서 빠지고 다음 수집 때 다시 채워진다. */
-async function fetchBidMethod(
+async function fetchNoticeInfo(
   apiKey: string,
   bidNtceNo: string,
   onRawResponse?: G2bFetchOptions['onRawResponse'],
-): Promise<string> {
+): Promise<G2bNoticeInfo> {
   const params: Record<string, string> = {
     type: 'json',
     inqryDiv: '2', // 입찰공고번호 기준
@@ -193,11 +200,20 @@ async function fetchBidMethod(
     const data = await fetchJson<G2bApiResponse<G2bNoticeItem>>(url)
     onRawResponse?.(BID_NOTICE_OPERATION, params, data)
     const items = data.response.body.items
-    return toBidMethod(items === '' ? undefined : items.at(-1)?.sucsfbidMthdNm) // 마지막 차수
+    const latest = items === '' ? undefined : items.at(-1) // 마지막 차수
+    return {
+      bidMethod: toBidMethod(latest?.sucsfbidMthdNm),
+      region: toRegion(latest?.cnstrtsiteRgnNm),
+    }
   } catch (e) {
-    console.warn(`[g2b] 낙찰방법 조회 실패 (${bidNtceNo}):`, e instanceof Error ? e.message : e)
-    return BID_METHOD_UNKNOWN
+    console.warn(`[g2b] 입찰공고 조회 실패 (${bidNtceNo}):`, e instanceof Error ? e.message : e)
+    return { bidMethod: BID_METHOD_UNKNOWN, region: null }
   }
+}
+
+/** "충청북도 청주시" → "충청북도" */
+export function toRegion(siteName: string | undefined): string | null {
+  return siteName?.trim().split(/\s+/)[0] || null
 }
 
 /** "적격심사제-추정가격이 ..." → "적격심사", "소액수의견적-..." → "소액수의견적" */
@@ -208,13 +224,13 @@ export function toBidMethod(methodName: string | undefined): string {
 }
 
 /**
- * 예비가격상세 15행 + 낙찰 목록의 수요기관 + 낙찰방법 → NewBid 변환.
+ * 예비가격상세 15행 + 낙찰 목록의 수요기관 + 입찰공고 정보 → NewBid 변환.
  * 테스트를 위해 export.
  */
 export function g2bDetailToBid(
   rows: G2bDetailItem[],
   searchItem: Pick<G2bSearchItem, 'dminsttCd' | 'dminsttNm'>,
-  bidMethod: string,
+  notice: G2bNoticeInfo,
 ): NewBid | null {
   if (rows.length === 0) return null
 
@@ -244,7 +260,8 @@ export function g2bDetailToBid(
     assessmentRate,
     noticeDate: parseDate(first.rlOpengDt) ?? '',
     openDate: first.rlOpengDt ?? null,
-    bidMethod,
+    bidMethod: notice.bidMethod,
+    region: notice.region,
   }
 }
 

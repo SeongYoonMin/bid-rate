@@ -23,6 +23,7 @@ function makeBid(overrides: Partial<Bid> = {}): Bid {
     noticeDate: '2026-01-01',
     openDate: null,
     bidMethod: '적격심사',
+    region: null,
     createdAt: '2026-01-01T00:00:00Z',
     ...overrides,
   }
@@ -40,6 +41,25 @@ describe('computeByMethod', () => {
 
     expect(methods.적격심사.overall.total).toBe(1)
     expect(methods.소액수의견적.overall.total).toBe(2)
+  })
+})
+
+describe('computeByMethod 지역', () => {
+  it('낙찰방법 안에서 시도별로 집계하고 지역을 모르는 공고는 뺀다', () => {
+    const { methods } = computeByMethod([
+      makeBid({ sourceId: 'A', region: '경기도' }),
+      makeBid({ sourceId: 'B', region: '경기도' }),
+      makeBid({ sourceId: 'C', region: '부산광역시' }),
+      makeBid({ sourceId: 'D', region: null }),
+      makeBid({ sourceId: 'E', region: '경기도', bidMethod: '소액수의견적' }),
+      makeBid({ sourceId: 'F', region: '부산광역시', assessmentRate: null }),
+    ])
+
+    expect(methods.적격심사.overall.total).toBe(4)
+    expect(methods.적격심사.regions?.경기도.overall.total).toBe(2)
+    expect(methods.적격심사.regions?.부산광역시.overall.total).toBe(1)
+    expect(Object.keys(methods.적격심사.regions ?? {})).toHaveLength(2)
+    expect(methods.소액수의견적.regions?.경기도.overall.total).toBe(1)
   })
 })
 

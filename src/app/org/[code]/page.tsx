@@ -1,5 +1,6 @@
 import Link from 'next/link'
 import { getLatestAnalysisWithDate, getBidsForTrend } from '@/lib/db'
+import { LOW_SAMPLE_THRESHOLD } from '@/lib/types'
 import { DistributionChart } from '../../components/DistributionChart'
 import { DistributionTable } from '../../components/DistributionTable'
 import { MethodTabs, methodHref, parseMethod } from '../../components/MethodTabs'
@@ -12,14 +13,12 @@ interface Props {
 
 export const dynamic = 'force-dynamic'
 
-const LOW_SAMPLE_THRESHOLD = 10
-
 export default async function OrgDetailPage({ params, searchParams }: Props) {
   const { code } = await params
   const method = parseMethod((await searchParams).method)
   const [latest, trendData] = await Promise.all([
     getLatestAnalysisWithDate(),
-    getBidsForTrend(method, code),
+    getBidsForTrend(method, { orgCode: code }),
   ])
 
   if (!latest) {

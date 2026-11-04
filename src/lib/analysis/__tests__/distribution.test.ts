@@ -22,6 +22,7 @@ function makeBid(overrides: Partial<Bid> = {}): Bid {
     noticeDate: '2026-01-01',
     openDate: null,
     bidMethod: '적격심사',
+    region: null,
     createdAt: '2026-01-01T00:00:00Z',
     ...overrides,
   }

@@ -1,10 +1,10 @@
-import { fetchG2bBids, g2bDetailToBid as toBidWithMethod, toBidMethod } from '../g2b'
+import { fetchG2bBids, g2bDetailToBid as toBidWithNotice, toBidMethod, toRegion } from '../g2b'
 
-/** 낙찰방법과 무관한 변환 검증용 */
+/** 입찰공고 정보와 무관한 변환 검증용 */
 const g2bDetailToBid = (
-  rows: Parameters<typeof toBidWithMethod>[0],
-  item: Parameters<typeof toBidWithMethod>[1],
-) => toBidWithMethod(rows, item, '적격심사')
+  rows: Parameters<typeof toBidWithNotice>[0],
+  item: Parameters<typeof toBidWithNotice>[1],
+) => toBidWithNotice(rows, item, { bidMethod: '적격심사', region: null })
 
 /** 15행 예비가격상세 샘플 생성 */
 function makeDetailRows(overrides: Record<string, string> = {}) {
@@ -104,9 +104,13 @@ describe('g2bDetailToBid', () => {
     expect(bid.assessmentRate).toBeNull()
   })
 
-  it('전달받은 낙찰방법을 저장한다', () => {
-    const bid = toBidWithMethod(makeDetailRows(), searchItem, '소액수의견적')!
+  it('전달받은 낙찰방법과 지역을 저장한다', () => {
+    const bid = toBidWithNotice(makeDetailRows(), searchItem, {
+      bidMethod: '소액수의견적',
+      region: '충청북도',
+    })!
 
+    expect(bid.region).toBe('충청북도')
     expect(bid.bidMethod).toBe('소액수의견적')
   })
 })
@@ -144,6 +148,18 @@ describe('fetchG2bBids', () => {
     expect(urls).toContain('SECRET-B')
     expect(saved).toHaveLength(3) // 목록, 예비가격상세, 입찰공고
     expect(JSON.stringify(saved)).not.toContain('SECRET')
+  })
+})
+
+describe('toRegion', () => {
+  it('공사현장 지역명의 첫 단어를 시도로 쓴다', () => {
+    expect(toRegion('충청북도 청주시')).toBe('충청북도')
+    expect(toRegion('부산광역시')).toBe('부산광역시')
+  })
+
+  it('값이 없으면 null이다', () => {
+    expect(toRegion(undefined)).toBeNull()
+    expect(toRegion('  ')).toBeNull()
   })
 })
 

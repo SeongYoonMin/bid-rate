@@ -33,6 +33,7 @@ export interface Bid {
 
   // 메타
   bidMethod: string // 적격심사, 제한최저가 등
+  region: string | null // 공사현장 시도 (모르면 null)
   createdAt: string // 저장 시각 (DB 자동 생성)
 }
 
@@ -59,8 +60,36 @@ export interface Recommendation {
   probability: number // count / total (0~1)
 }
 
+/** 다음 사정률 예상 범위와 과거 적중 기록 (값 단위: %, 화면 표시값 기준) */
+export interface Prediction {
+  mean: number
+  sd: number
+  low: number // mean - sd × 배수
+  high: number // mean + sd × 배수
+  total: number
+  backtest: {
+    evaluated: number // 평가한 공고 수
+    hits: number // 그때까지의 범위 안에 든 공고 수
+    baselineHits: number // 같은 폭을 0% 중심으로 잡았을 때 든 공고 수
+    meanAbsError: number | null
+    baselineMeanAbsError: number | null // 항상 0으로 봤을 때
+  }
+}
+
+/** 시도별 분석 결과 */
+export interface RegionResult {
+  overall: Distribution
+  recommendations: Recommendation[]
+  prediction: Prediction | null
+}
+
+/** 건수가 이보다 적으면 화면에 표본 부족을 표시한다 (docs/decisions.md) */
+export const LOW_SAMPLE_THRESHOLD = 10
+
 /** 분석 전체 결과 */
 export interface AnalysisResult {
+  prediction?: Prediction | null
+  regions?: Record<string, RegionResult> // 시도별 (과거 스냅샷에는 없음)
   overall: Distribution
   byOrg: Record<string, Distribution>
   orgNames?: Record<string, string> // orgCode → 발주기관명 (과거 스냅샷에는 없음)
