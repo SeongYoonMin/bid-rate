@@ -106,7 +106,7 @@ Bid[] → 분포 집계 → 발주처 보정 → 추천 지점 결정 → 결과
 
 ```
 [매일 08:00 KST = UTC 23:00]
-  Vercel Cron → POST /api/cron (CRON_SECRET 검증)
+  Vercel Cron → GET /api/cron (CRON_SECRET 검증)
     → 한전 API 수집 → toBid → 저장
     → 나라장터 API 수집 → toBid → 저장
     → recomputeAll()

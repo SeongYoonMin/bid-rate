@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { collectAndRecompute } from '@/lib/orchestrate'
 
-export async function POST(req: NextRequest) {
+export async function GET(req: NextRequest) {
   const secret = process.env.CRON_SECRET
   if (!secret) {
     return NextResponse.json({ ok: false, error: 'CRON_SECRET 미설정' }, { status: 500 })
