@@ -25,3 +25,10 @@ npm-debug.log*
 # OS
 .DS_Store
 Thumbs.db
+
+# scratch (임시 분석 스크립트/데이터)
+scratch/
+
+# 참조 파일 (API 문서, 업종코드 엑셀 등)
+*.docx
+*.xlsx
