@@ -86,6 +86,12 @@ export interface RegionResult {
 /** 건수가 이보다 적으면 화면에 표본 부족을 표시한다 (docs/decisions.md) */
 export const LOW_SAMPLE_THRESHOLD = 10
 
+/** 화면에서 기본으로 보여 줄 공사현장 시도. 나머지 지역은 참고용 (docs/decisions.md) */
+export const HOME_REGION = '전남광주통합특별시'
+
+/** 지역 구분 없이 전체를 볼 때 URL의 region 값 */
+export const ALL_REGIONS = '전체'
+
 /** 분석 전체 결과 */
 export interface AnalysisResult {
   prediction?: Prediction | null
