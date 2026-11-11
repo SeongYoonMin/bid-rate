@@ -42,6 +42,27 @@ describe('fetchKepcoBids', () => {
     expect(saved[0].data.map((i) => i.no)).toEqual(['NEW'])
   })
 
+  it('기관명 조건이 있으면 그 이름이 들어간 공고만 원본과 Bid로 남긴다', async () => {
+    vi.stubGlobal('fetch', async () => ({
+      ok: true,
+      json: async () => ({
+        data: [
+          makeKepcoItem({ no: 'HOME', placeName: '광주전남본부 기획관리실' }),
+          makeKepcoItem({ no: 'OTHER', placeName: '경기본부 기획관리실' }),
+        ],
+      }),
+    }))
+    const saved: { data: { no: string }[] }[] = []
+
+    const bids = await fetchKepcoBids('KEY', '20260101', '20260102', {
+      placeNameIncludes: '광주전남',
+      onRawResponse: (_endpoint, _params, body) => saved.push(body as { data: { no: string }[] }),
+    })
+
+    expect(bids.map((b) => b.sourceId)).toEqual(['HOME'])
+    expect(saved[0].data.map((i) => i.no)).toEqual(['HOME'])
+  })
+
   it('새 공고가 없으면 원본을 저장하지 않는다', async () => {
     vi.stubGlobal('fetch', async () => ({
       ok: true,

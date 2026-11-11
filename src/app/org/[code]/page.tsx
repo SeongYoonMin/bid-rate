@@ -8,17 +8,14 @@ import { TrendChart } from '../../components/TrendChart'
 
 interface Props {
   params: Promise<{ code: string }>
-  searchParams: Promise<{ method?: string; region?: string }>
+  searchParams: Promise<{ method?: string }>
 }
 
 export const dynamic = 'force-dynamic'
 
 export default async function OrgDetailPage({ params, searchParams }: Props) {
   const { code } = await params
-  const query = await searchParams
-  const method = parseMethod(query.method)
-  // 목록으로 돌아갈 때 고른 지역을 유지한다 (분포는 지역과 무관하게 이 발주처 전체)
-  const regionParam = query.region || undefined
+  const method = parseMethod((await searchParams).method)
   const [latest, trendData] = await Promise.all([
     getLatestAnalysisWithDate(),
     getBidsForTrend(method, { orgCode: code }),
@@ -48,10 +45,7 @@ export default async function OrgDetailPage({ params, searchParams }: Props) {
   return (
     <div className="flex flex-col gap-6">
       <div>
-        <Link
-          href={methodHref('/org', method, regionParam)}
-          className="text-sm text-blue-600 hover:underline"
-        >
+        <Link href={methodHref('/org', method)} className="text-sm text-blue-600 hover:underline">
           ← 발주처 목록
         </Link>
       </div>
@@ -61,7 +55,7 @@ export default async function OrgDetailPage({ params, searchParams }: Props) {
         <span className="shrink-0 text-sm text-gray-400">{computedDate} 기준</span>
       </div>
 
-      <MethodTabs path={`/org/${code}`} method={method} region={regionParam} />
+      <MethodTabs path={`/org/${code}`} method={method} />
 
       {!hasData ? (
         <div className="rounded-lg border p-8 text-center text-gray-500">

@@ -9,8 +9,12 @@ import {
   saveRawResponse,
   upsertBids,
 } from './db'
+import { HOME_REGION } from './types'
 
 const COLLECT_DAYS = 7
+
+/** 한전은 공사현장 지역이 없어 발주기관명으로 고른다 (docs/decisions.md) */
+const KEPCO_HOME_PLACE_NAME = '광주전남'
 
 /** DB 전체 Bid 조회 → 분석 → 결과 저장 */
 export async function recomputeAll(): Promise<void> {
@@ -18,7 +22,7 @@ export async function recomputeAll(): Promise<void> {
   await saveAnalysisResult(computeByMethod(bids))
 }
 
-/** 한전+나라장터 수집 → upsert → 재분석 */
+/** 한전+나라장터 수집(전남광주만) → upsert → 재분석 */
 export async function collectAndRecompute(): Promise<{ bidsCount: number }> {
   const g2bKey = process.env.G2B_API_KEY
   const g2bBidKey = process.env.G2B_BID_API_KEY
@@ -46,10 +50,12 @@ export async function collectAndRecompute(): Promise<{ bidsCount: number }> {
     fetchG2bBids(g2bKey, g2bBidKey, g2bBegin, g2bEnd, {
       onRawResponse: g2bRaw,
       getCompleteIds: getCompleteBidIds,
+      region: HOME_REGION,
     }),
     fetchKepcoBids(kepcoKey, kepcoBegin, kepcoEnd, {
       onRawResponse: kepcoRaw,
       getExistingIds: getExistingBidIds,
+      placeNameIncludes: KEPCO_HOME_PLACE_NAME,
     }),
   ])
 

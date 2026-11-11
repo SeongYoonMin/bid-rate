@@ -67,12 +67,15 @@ export interface G2bFetchOptions {
   onRawResponse?: (endpoint: string, params: Record<string, string>, body: unknown) => void
   /** 수집이 끝난 공고번호를 돌려준다. 이 공고는 상세 호출과 원본 저장을 건너뛴다. */
   getCompleteIds?: (ids: string[]) => Promise<Set<string>>
+  /** 공사현장 시도. 지정하면 다른 지역 공고는 예비가격상세 호출과 원본 저장을 건너뛴다. */
+  region?: string
 }
 
 /**
  * 나라장터에서 전기공사 입찰 데이터를 수집한다.
  * 1) PPSSrch로 전기공사(0037) 공고번호 목록 전체 페이징
- * 2) 아직 수집이 끝나지 않은 공고번호로 예비가격상세와 낙찰방법 조회 → toBid 변환
+ * 2) 아직 수집이 끝나지 않은 공고번호로 입찰공고(낙찰방법·지역) 조회
+ * 3) 지역 조건에 맞는 공고만 예비가격상세 조회 → toBid 변환
  */
 export async function fetchG2bBids(
   apiKey: string,
@@ -98,16 +101,21 @@ export async function fetchG2bBids(
     (await options?.getCompleteIds?.(unique.map((item) => item.bidNtceNo))) ?? new Set<string>()
   const targets = unique.filter((item) => !complete.has(item.bidNtceNo))
 
-  // 2단계: 각 공고번호로 예비가격상세 조회 (rate limit 방지 딜레이 포함)
+  // 2단계: 각 공고번호로 입찰공고와 예비가격상세 조회 (rate limit 방지 딜레이 포함)
   const bids: NewBid[] = []
   for (let idx = 0; idx < targets.length; idx++) {
     const item = targets[idx]
     if (idx > 0) await delay(200)
     try {
-      const [detailItems, notice] = await Promise.all([
-        fetchDetailItems(apiKey, item.bidNtceNo, options?.onRawResponse),
-        fetchNoticeInfo(bidNoticeApiKey, item.bidNtceNo, options?.onRawResponse),
-      ])
+      // 다른 지역 공고의 원본은 남기지 않도록, 지역을 확인한 뒤에 저장한다
+      const noticeRaw: Parameters<NonNullable<G2bFetchOptions['onRawResponse']>>[] = []
+      const notice = await fetchNoticeInfo(bidNoticeApiKey, item.bidNtceNo, (...args) =>
+        noticeRaw.push(args),
+      )
+      if (options?.region && notice.region !== options.region) continue
+      for (const args of noticeRaw) options?.onRawResponse?.(...args)
+
+      const detailItems = await fetchDetailItems(apiKey, item.bidNtceNo, options?.onRawResponse)
       if (detailItems.length < 15) continue // 15행 미만 제외
       const bid = g2bDetailToBid(detailItems, item, notice)
       if (bid) bids.push(bid)
@@ -208,9 +216,17 @@ async function fetchNoticeInfo(
   }
 }
 
-/** "충청북도 청주시" → "충청북도" */
+/** 2026-07-01 전라남도·광주광역시 통합 전 이름 → 통합 후 이름 */
+const MERGED_REGIONS: Record<string, string> = {
+  전라남도: '전남광주통합특별시',
+  광주광역시: '전남광주통합특별시',
+}
+
+/** "충청북도 청주시" → "충청북도". 통합 전 이름은 통합 후 이름으로 바꾼다. */
 export function toRegion(siteName: string | undefined): string | null {
-  return siteName?.trim().split(/\s+/)[0] || null
+  const sido = siteName?.trim().split(/\s+/)[0]
+  if (!sido) return null
+  return MERGED_REGIONS[sido] ?? sido
 }
 
 /** "적격심사제-추정가격이 ..." → "적격심사", "소액수의견적-..." → "소액수의견적" */

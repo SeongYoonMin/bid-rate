@@ -240,10 +240,78 @@ describe('fetchG2bBids 수집이 끝난 공고', () => {
   })
 })
 
+describe('fetchG2bBids 지역 제한', () => {
+  afterEach(() => vi.unstubAllGlobals())
+
+  /** 입찰공고의 공사현장 지역만 인자로 정하고, 호출 URL과 저장된 원본 종류를 기록한다 */
+  async function collectWithSite(site: string) {
+    const requested: string[] = []
+    vi.stubGlobal('fetch', async (url: string) => {
+      requested.push(url)
+      const items = url.includes('BidPublicInfoService02')
+        ? [{ sucsfbidMthdNm: '적격심사제-테스트', cnstrtsiteRgnNm: site }]
+        : makeDetailRows().map((row) => ({ ...row, ...searchItem }))
+      return {
+        ok: true,
+        json: async () => ({
+          response: {
+            header: { resultCode: '00', resultMsg: '정상' },
+            body: { items, numOfRows: 100, pageNo: 1, totalCount: items.length },
+          },
+        }),
+      }
+    })
+    const saved: string[] = []
+    const bids = await fetchG2bBids('KEY-A', 'KEY-B', '202601010000', '202601022359', {
+      region: '전남광주통합특별시',
+      onRawResponse: (endpoint) => saved.push(endpoint),
+    })
+    return {
+      bids,
+      saved,
+      detailCalls: requested.filter((u) => u.includes('PreparPcDetail')).length,
+    }
+  }
+
+  it('다른 지역 공고는 예비가격상세를 호출하지 않고 입찰공고 원본도 저장하지 않는다', async () => {
+    const { bids, saved, detailCalls } = await collectWithSite('경기도 수원시')
+
+    expect(bids).toEqual([])
+    expect(detailCalls).toBe(0)
+    expect(saved).toEqual(['getScsbidListSttusCnstwkPPSSrch'])
+  })
+
+  it('통합 전 이름(전라남도)으로 온 공고도 같은 지역으로 수집한다', async () => {
+    const { bids } = await collectWithSite('전라남도 순천시')
+
+    expect(bids).toHaveLength(1)
+    expect(bids[0].region).toBe('전남광주통합특별시')
+  })
+
+  it('같은 지역 공고는 지금처럼 수집하고 원본을 저장한다', async () => {
+    const { bids, saved, detailCalls } = await collectWithSite('전남광주통합특별시 나주시')
+
+    expect(bids).toHaveLength(1)
+    expect(bids[0].region).toBe('전남광주통합특별시')
+    expect(detailCalls).toBe(1)
+    expect(saved).toEqual([
+      'getScsbidListSttusCnstwkPPSSrch',
+      'getBidPblancListInfoCnstwk02',
+      'getOpengResultListInfoCnstwkPreparPcDetail',
+    ])
+  })
+})
+
 describe('toRegion', () => {
   it('공사현장 지역명의 첫 단어를 시도로 쓴다', () => {
     expect(toRegion('충청북도 청주시')).toBe('충청북도')
     expect(toRegion('부산광역시')).toBe('부산광역시')
+  })
+
+  it('2026-07-01 통합 전 이름(전라남도, 광주광역시)은 전남광주통합특별시로 바꾼다', () => {
+    expect(toRegion('전라남도 나주시')).toBe('전남광주통합특별시')
+    expect(toRegion('광주광역시 북구')).toBe('전남광주통합특별시')
+    expect(toRegion('전남광주통합특별시 여수시')).toBe('전남광주통합특별시')
   })
 
   it('값이 없으면 null이다', () => {

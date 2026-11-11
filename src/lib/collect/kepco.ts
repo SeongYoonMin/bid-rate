@@ -28,6 +28,8 @@ export interface KepcoFetchOptions {
   onRawResponse?: (endpoint: string, params: Record<string, string>, body: unknown) => void
   /** 이미 저장된 공고번호를 돌려준다. 저장된 공고는 원본도 Bid도 다시 만들지 않는다. */
   getExistingIds?: (ids: string[]) => Promise<Set<string>>
+  /** 지정하면 발주기관명(placeName)에 이 문자열이 들어간 공고만 남긴다 (한전 API에 공사현장 지역 없음) */
+  placeNameIncludes?: string
 }
 
 /**
@@ -43,9 +45,13 @@ export async function fetchKepcoBids(
 ): Promise<NewBid[]> {
   const { params, data } = await fetchAllItems(apiKey, beginDate, endDate)
 
-  // 공사 + 적격심사만 필터
+  // 공사 + 적격심사 (+ 기관명 조건)만 필터
+  const placeName = options?.placeNameIncludes
   const filtered = data.data.filter(
-    (item) => item.itemType === 'Construction' && item.bidType === 'QualifiedEval',
+    (item) =>
+      item.itemType === 'Construction' &&
+      item.bidType === 'QualifiedEval' &&
+      (!placeName || item.placeName.includes(placeName)),
   )
 
   const existing = (await options?.getExistingIds?.(filtered.map((item) => item.no))) ?? new Set()
