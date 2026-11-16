@@ -232,6 +232,26 @@ export async function getBidsForTrend(
   }))
 }
 
+/** 해당 공사현장 시도에 사정률 있는 공고가 1건 이상 있는 발주처 코드 */
+export async function getOrgCodesInRegion(
+  method: AnalysisMethod,
+  region: string,
+): Promise<Set<string>> {
+  const rows = await fetchAllRows<{ org_code: string }>(
+    (from, to) =>
+      getSupabase()
+        .from('bids')
+        .select('org_code')
+        .not('assessment_rate', 'is', null)
+        .eq('bid_method', method)
+        .eq('region', region)
+        .order('source_id')
+        .range(from, to),
+    'getOrgCodesInRegion',
+  )
+  return new Set(rows.map((row) => row.org_code))
+}
+
 /** API 원본 응답 저장 */
 export async function saveRawResponse(
   source: string,

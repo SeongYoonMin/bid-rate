@@ -5,6 +5,7 @@ import type { NewBid, PreliminaryPrice } from '../types'
 const BASE_URL = 'https://apis.data.go.kr/1230000/as/ScsbidInfoService'
 const BID_NOTICE_BASE_URL = 'https://apis.data.go.kr/1230000/ad/BidPublicInfoService02'
 const BID_NOTICE_OPERATION = 'getBidPblancListInfoCnstwk02'
+const NOTICE_SEARCH_OPERATION = 'getBidPblancListInfoCnstwkPPSSrch02'
 const BID_METHOD_UNKNOWN = '미확인'
 
 const ELECTRIC_INDUSTRY_CODE = '0037'
@@ -53,7 +54,7 @@ interface G2bApiResponse<T> {
   response: {
     header: { resultCode: string; resultMsg: string }
     body: {
-      items: T[] | ''
+      items?: T[] | '' // 결과가 없으면 빈 문자열이거나 아예 없다
       numOfRows: number
       pageNo: number
       totalCount: number
@@ -67,12 +68,15 @@ export interface G2bFetchOptions {
   onRawResponse?: (endpoint: string, params: Record<string, string>, body: unknown) => void
   /** 수집이 끝난 공고번호를 돌려준다. 이 공고는 상세 호출과 원본 저장을 건너뛴다. */
   getCompleteIds?: (ids: string[]) => Promise<Set<string>>
+  /** 공사현장 시도. 지정하면 다른 지역 공고는 예비가격상세 호출과 원본 저장을 건너뛴다. */
+  region?: string
 }
 
 /**
  * 나라장터에서 전기공사 입찰 데이터를 수집한다.
  * 1) PPSSrch로 전기공사(0037) 공고번호 목록 전체 페이징
- * 2) 아직 수집이 끝나지 않은 공고번호로 예비가격상세와 낙찰방법 조회 → toBid 변환
+ * 2) 아직 수집이 끝나지 않은 공고번호로 입찰공고(낙찰방법·지역) 조회
+ * 3) 지역 조건에 맞는 공고만 예비가격상세 조회 → toBid 변환
  */
 export async function fetchG2bBids(
   apiKey: string,
@@ -98,16 +102,21 @@ export async function fetchG2bBids(
     (await options?.getCompleteIds?.(unique.map((item) => item.bidNtceNo))) ?? new Set<string>()
   const targets = unique.filter((item) => !complete.has(item.bidNtceNo))
 
-  // 2단계: 각 공고번호로 예비가격상세 조회 (rate limit 방지 딜레이 포함)
+  // 2단계: 각 공고번호로 입찰공고와 예비가격상세 조회 (rate limit 방지 딜레이 포함)
   const bids: NewBid[] = []
   for (let idx = 0; idx < targets.length; idx++) {
     const item = targets[idx]
     if (idx > 0) await delay(200)
     try {
-      const [detailItems, notice] = await Promise.all([
-        fetchDetailItems(apiKey, item.bidNtceNo, options?.onRawResponse),
-        fetchNoticeInfo(bidNoticeApiKey, item.bidNtceNo, options?.onRawResponse),
-      ])
+      // 다른 지역 공고의 원본은 남기지 않도록, 지역을 확인한 뒤에 저장한다
+      const noticeRaw: Parameters<NonNullable<G2bFetchOptions['onRawResponse']>>[] = []
+      const notice = await fetchNoticeInfo(bidNoticeApiKey, item.bidNtceNo, (...args) =>
+        noticeRaw.push(args),
+      )
+      if (options?.region && notice.region !== options.region) continue
+      for (const args of noticeRaw) options?.onRawResponse?.(...args)
+
+      const detailItems = await fetchDetailItems(apiKey, item.bidNtceNo, options?.onRawResponse)
       if (detailItems.length < 15) continue // 15행 미만 제외
       const bid = g2bDetailToBid(detailItems, item, notice)
       if (bid) bids.push(bid)
@@ -120,6 +129,99 @@ export async function fetchG2bBids(
   }
 
   return bids
+}
+
+/** 입찰공고 검색에서 고른 공고 (과거 공고를 기간으로 모을 때 사용) */
+export interface G2bNotice {
+  bidNtceNo: string
+  dminsttCd: string
+  dminsttNm: string
+  bidMethod: string
+  region: string | null
+}
+
+/** 입찰공고 검색 응답 아이템 (필요한 항목만) */
+interface G2bNoticeSearchItem extends G2bNoticeItem {
+  bidNtceNo: string
+  bidNtceOrd: string
+  dminsttCd: string
+  dminsttNm: string
+}
+
+/**
+ * 입찰공고 검색으로 기간 안의 전기공사(0037) 공고를 모은다. 기간은 7일 이하(1개월은 범위 초과 오류).
+ * 같은 공고번호는 마지막 차수를 쓰고, region을 주면 그 지역 공고만 돌려준다.
+ * 원본은 돌려주는 공고 항목만 남긴다 (목록 전체는 용량이 커서).
+ */
+export async function fetchG2bNotices(
+  bidNoticeApiKey: string,
+  beginDate: string, // YYYYMMDDHHmm
+  endDate: string, // YYYYMMDDHHmm
+  options?: Pick<G2bFetchOptions, 'onRawResponse' | 'region'>,
+): Promise<G2bNotice[]> {
+  const latest = new Map<string, G2bNoticeSearchItem>()
+  for (let pageNo = 1; ; pageNo++) {
+    // 원본과 함께 저장되므로 키를 넣지 않는다
+    const params: Record<string, string> = {
+      type: 'json',
+      inqryDiv: '1', // 등록일시 기준
+      inqryBgnDt: beginDate,
+      inqryEndDt: endDate,
+      indstrytyCd: ELECTRIC_INDUSTRY_CODE,
+      numOfRows: String(PAGE_SIZE),
+      pageNo: String(pageNo),
+    }
+    const url = buildUrl(
+      NOTICE_SEARCH_OPERATION,
+      { ...params, serviceKey: bidNoticeApiKey },
+      BID_NOTICE_BASE_URL,
+    )
+    const data = await fetchJson<G2bApiResponse<G2bNoticeSearchItem>>(url)
+    if (!data.response) {
+      throw new Error(`[g2b] 입찰공고 검색 오류: ${JSON.stringify(data).slice(0, 200)}`)
+    }
+    const body = data.response.body
+    const items = itemsOf(body)
+
+    const kept = items.filter(
+      (item) => !options?.region || toRegion(item.cnstrtsiteRgnNm) === options.region,
+    )
+    if (kept.length > 0) {
+      options?.onRawResponse?.(NOTICE_SEARCH_OPERATION, params, {
+        ...data,
+        response: { ...data.response, body: { ...body, items: kept } },
+      })
+    }
+    for (const item of items) {
+      const prev = latest.get(item.bidNtceNo)
+      if (!prev || Number(item.bidNtceOrd) >= Number(prev.bidNtceOrd))
+        latest.set(item.bidNtceNo, item)
+    }
+
+    if (pageNo * body.numOfRows >= body.totalCount) break
+  }
+
+  // 지역은 마지막 차수 기준으로 다시 거른다 (정정 공고로 지역이 바뀐 경우)
+  return [...latest.values()]
+    .map((item) => ({
+      bidNtceNo: item.bidNtceNo,
+      dminsttCd: item.dminsttCd,
+      dminsttNm: item.dminsttNm,
+      bidMethod: toBidMethod(item.sucsfbidMthdNm),
+      region: toRegion(item.cnstrtsiteRgnNm),
+    }))
+    .filter((notice) => !options?.region || notice.region === options.region)
+}
+
+/** 공고 하나의 예비가격상세를 받아 Bid로 바꾼다. 15행 미만(유찰·재공고 등)이면 null. */
+export async function fetchG2bBidForNotice(
+  apiKey: string,
+  notice: G2bNotice,
+  onRawResponse?: G2bFetchOptions['onRawResponse'],
+): Promise<NewBid | null> {
+  const rows = await fetchDetailItems(apiKey, notice.bidNtceNo, onRawResponse)
+  if (rows.length < 15) return null
+  return g2bDetailToBid(rows, notice, { bidMethod: notice.bidMethod, region: notice.region })
 }
 
 // --- 내부 함수 ---
@@ -150,8 +252,7 @@ async function fetchAllSearchItems(
     const data = await fetchJson<G2bApiResponse<G2bSearchItem>>(url)
     onRawResponse?.('getScsbidListSttusCnstwkPPSSrch', params, data)
     const body = data.response.body
-    const items = body.items === '' ? [] : body.items
-    allItems.push(...items)
+    allItems.push(...itemsOf(body))
 
     if (pageNo * body.numOfRows >= body.totalCount) break
     pageNo++
@@ -180,8 +281,7 @@ async function fetchDetailItems(
 
   const data = await fetchJson<G2bApiResponse<G2bDetailItem>>(url)
   onRawResponse?.('getOpengResultListInfoCnstwkPreparPcDetail', params, data)
-  const items = data.response.body.items
-  return items === '' ? [] : items
+  return itemsOf(data.response.body)
 }
 
 /** 조회에 실패하면 예외를 던진다. 이미 저장된 값을 덮어쓰지 않도록 그 공고는 이번 수집에서 건너뛴다. */
@@ -200,17 +300,24 @@ async function fetchNoticeInfo(
   const url = buildUrl(BID_NOTICE_OPERATION, { ...params, serviceKey: apiKey }, BID_NOTICE_BASE_URL)
   const data = await fetchJson<G2bApiResponse<G2bNoticeItem>>(url)
   onRawResponse?.(BID_NOTICE_OPERATION, params, data)
-  const items = data.response.body.items
-  const latest = items === '' ? undefined : items.at(-1) // 마지막 차수
+  const latest = itemsOf(data.response.body).at(-1) // 마지막 차수
   return {
     bidMethod: toBidMethod(latest?.sucsfbidMthdNm),
     region: toRegion(latest?.cnstrtsiteRgnNm),
   }
 }
 
-/** "충청북도 청주시" → "충청북도" */
+/** 2026-07-01 전라남도·광주광역시 통합 전 이름 → 통합 후 이름 */
+const MERGED_REGIONS: Record<string, string> = {
+  전라남도: '전남광주통합특별시',
+  광주광역시: '전남광주통합특별시',
+}
+
+/** "충청북도 청주시" → "충청북도". 통합 전 이름은 통합 후 이름으로 바꾼다. */
 export function toRegion(siteName: string | undefined): string | null {
-  return siteName?.trim().split(/\s+/)[0] || null
+  const sido = siteName?.trim().split(/\s+/)[0]
+  if (!sido) return null
+  return MERGED_REGIONS[sido] ?? sido
 }
 
 /** "적격심사제-추정가격이 ..." → "적격심사", "소액수의견적-..." → "소액수의견적" */
@@ -263,6 +370,11 @@ export function g2bDetailToBid(
 }
 
 // --- 유틸 ---
+
+/** 응답 목록. 결과가 없으면 items가 빈 문자열이거나 아예 없다 */
+function itemsOf<T>(body: G2bApiResponse<T>['response']['body']): T[] {
+  return Array.isArray(body.items) ? body.items : []
+}
 
 function buildUrl(
   operation: string,
