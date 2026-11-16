@@ -29,6 +29,9 @@ Thumbs.db
 # scratch (임시 분석 스크립트/데이터)
 scratch/
 
+# 과거 수집 진행 상태 (scripts/backfill-g2b.ts)
+.backfill/
+
 # 참조 파일 (API 문서, 업종코드 엑셀 등)
 *.docx
 *.xlsx

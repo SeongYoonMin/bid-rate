@@ -1,4 +1,11 @@
-import { fetchG2bBids, g2bDetailToBid as toBidWithNotice, toBidMethod, toRegion } from '../g2b'
+import {
+  fetchG2bBidForNotice,
+  fetchG2bBids,
+  fetchG2bNotices,
+  g2bDetailToBid as toBidWithNotice,
+  toBidMethod,
+  toRegion,
+} from '../g2b'
 
 /** 입찰공고 정보와 무관한 변환 검증용 */
 const g2bDetailToBid = (
@@ -299,6 +306,166 @@ describe('fetchG2bBids 지역 제한', () => {
       'getBidPblancListInfoCnstwk02',
       'getOpengResultListInfoCnstwkPreparPcDetail',
     ])
+  })
+})
+
+describe('fetchG2bNotices', () => {
+  afterEach(() => vi.unstubAllGlobals())
+
+  /** 입찰공고 검색 응답. 쪽마다 items를 따로 준다 */
+  function stubPages(pages: object[][], totalCount: number) {
+    const requested: string[] = []
+    vi.stubGlobal('fetch', async (url: string) => {
+      requested.push(url)
+      const pageNo = Number(new URL(url).searchParams.get('pageNo'))
+      return {
+        ok: true,
+        json: async () => ({
+          response: {
+            header: { resultCode: '00', resultMsg: '정상' },
+            body: { items: pages[pageNo - 1], numOfRows: 2, pageNo, totalCount },
+          },
+        }),
+      }
+    })
+    return requested
+  }
+  const notice = (no: string, ord: string, site: string) => ({
+    bidNtceNo: no,
+    bidNtceOrd: ord,
+    dminsttCd: 'ORG',
+    dminsttNm: '기관',
+    sucsfbidMthdNm: '소액수의견적-견적',
+    cnstrtsiteRgnNm: site,
+  })
+
+  it('모든 쪽을 받아 지역에 맞는 공고만, 같은 공고번호는 마지막 차수로 돌려준다', async () => {
+    const requested = stubPages(
+      [
+        [notice('A', '000', '전라남도 나주시'), notice('B', '000', '경기도 수원시')],
+        [notice('A', '001', '전남광주통합특별시 나주시'), notice('C', '000', '광주광역시 북구')],
+      ],
+      4,
+    )
+
+    const notices = await fetchG2bNotices('KEY-B', '202410010000', '202410072359', {
+      region: '전남광주통합특별시',
+    })
+
+    expect(requested).toHaveLength(2)
+    expect(requested[0]).toContain('indstrytyCd=0037')
+    expect(notices).toEqual([
+      {
+        bidNtceNo: 'A',
+        dminsttCd: 'ORG',
+        dminsttNm: '기관',
+        bidMethod: '소액수의견적',
+        region: '전남광주통합특별시',
+      },
+      {
+        bidNtceNo: 'C',
+        dminsttCd: 'ORG',
+        dminsttNm: '기관',
+        bidMethod: '소액수의견적',
+        region: '전남광주통합특별시',
+      },
+    ])
+  })
+
+  it('원본은 지역에 맞는 항목만 남기고, 키는 저장 파라미터에 넣지 않는다', async () => {
+    stubPages([[notice('A', '000', '전라남도 나주시'), notice('B', '000', '경기도 수원시')]], 2)
+    const saved: {
+      params: object
+      body: { response: { body: { items: { bidNtceNo: string }[] } } }
+    }[] = []
+
+    await fetchG2bNotices('SECRET-B', '202410010000', '202410072359', {
+      region: '전남광주통합특별시',
+      onRawResponse: (_endpoint, params, body) => saved.push({ params, body: body as never }),
+    })
+
+    expect(saved).toHaveLength(1)
+    expect(saved[0].body.response.body.items.map((i) => i.bidNtceNo)).toEqual(['A'])
+    expect(JSON.stringify(saved)).not.toContain('SECRET')
+  })
+
+  it('맞는 항목이 없는 쪽은 원본을 저장하지 않는다', async () => {
+    stubPages([[notice('B', '000', '경기도 수원시')]], 1)
+    const saved: unknown[] = []
+
+    await fetchG2bNotices('KEY-B', '202410010000', '202410072359', {
+      region: '전남광주통합특별시',
+      onRawResponse: (...args) => saved.push(args),
+    })
+
+    expect(saved).toEqual([])
+  })
+
+  it('오류 응답(입력범위값 초과 등)이면 예외를 던진다', async () => {
+    vi.stubGlobal('fetch', async () => ({
+      ok: true,
+      json: async () => ({
+        'nkoneps.com.response.ResponseError': {
+          header: { resultCode: '07', resultMsg: '입력범위값 초과 에러' },
+        },
+      }),
+    }))
+
+    await expect(fetchG2bNotices('KEY-B', '202410010000', '202410312359')).rejects.toThrow('07')
+  })
+})
+
+describe('fetchG2bBidForNotice', () => {
+  afterEach(() => vi.unstubAllGlobals())
+
+  const target = {
+    bidNtceNo: 'R26BK01642721',
+    dminsttCd: '4791000',
+    dminsttNm: '전남광주통합특별시 나주시',
+    bidMethod: '적격심사',
+    region: '전남광주통합특별시',
+  }
+  const stubDetail = (rows: object[]) =>
+    vi.stubGlobal('fetch', async () => ({
+      ok: true,
+      json: async () => ({
+        response: {
+          header: { resultCode: '00', resultMsg: '정상' },
+          body: { items: rows, numOfRows: 15, pageNo: 1, totalCount: rows.length },
+        },
+      }),
+    }))
+
+  it('예비가격상세로 Bid를 만들고 발주기관·낙찰방법·지역은 공고 값을 쓴다', async () => {
+    stubDetail(makeDetailRows())
+
+    const bid = await fetchG2bBidForNotice('KEY-A', target)
+
+    expect(bid?.sourceId).toBe('R26BK01642721')
+    expect(bid?.orgCode).toBe('4791000')
+    expect(bid?.org).toBe('전남광주통합특별시 나주시')
+    expect(bid?.bidMethod).toBe('적격심사')
+    expect(bid?.region).toBe('전남광주통합특별시')
+  })
+
+  it('결과가 0건이라 응답에 items가 없으면 null이다', async () => {
+    vi.stubGlobal('fetch', async () => ({
+      ok: true,
+      json: async () => ({
+        response: {
+          header: { resultCode: '00', resultMsg: '정상' },
+          body: { numOfRows: 15, pageNo: 1, totalCount: 0 },
+        },
+      }),
+    }))
+
+    expect(await fetchG2bBidForNotice('KEY-A', target)).toBeNull()
+  })
+
+  it('15행 미만이면 null이다', async () => {
+    stubDetail(makeDetailRows().slice(0, 3))
+
+    expect(await fetchG2bBidForNotice('KEY-A', target)).toBeNull()
   })
 })
 
