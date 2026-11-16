@@ -3,7 +3,6 @@ import { getLatestAnalysisWithDate, getBidsForTrend } from '@/lib/db'
 import { HOME_REGION, LOW_SAMPLE_THRESHOLD } from '@/lib/types'
 import { DistributionChart } from './components/DistributionChart'
 import { MethodTabs, methodHref, parseMethod } from './components/MethodTabs'
-import { PredictionCard } from './components/PredictionCard'
 import { TrendChart } from './components/TrendChart'
 
 export const dynamic = 'force-dynamic'
@@ -94,8 +93,6 @@ export default async function Home({ searchParams }: Props) {
               ))}
             </div>
           )}
-
-          {view.prediction && <PredictionCard prediction={view.prediction} />}
 
           {/* 분포 차트 */}
           <div>
